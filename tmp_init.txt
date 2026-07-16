@@ -1,0 +1,39 @@
+﻿function initMonthSelector(email) {
+      const container = document.getElementById('monthBtns');
+      container.innerHTML = '';
+      const today = new Date();
+      const monthBtnMap = {};
+      for (let i = 1; i <= 3; i++) {
+        let m = today.getMonth() + 1 + i;
+        let y = today.getFullYear();
+        if (m > 12) { m -= 12; y++; }
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'month-select-btn';
+        btn.dataset.month  = m;
+        btn.dataset.year   = y;
+        btn.dataset.locked = 'false';
+        btn.innerText = HEBREW_MONTHS[m-1] + ' \u2019' + String(y).slice(2);
+        btn.onclick = () => onMonthSelect(m, y, btn);
+        container.appendChild(btn);
+        monthBtnMap[m + '-' + y] = btn;
+      }
+      // Fetch lock status and pre-mark locked month buttons
+      google.script.run
+        .withSuccessHandler(function(s) {
+          if (!s || !s.months) return;
+          s.months.forEach(function(info) {
+            const b = monthBtnMap[info.month + '-' + info.year];
+            if (b) {
+              b.dataset.locked = info.locked ? 'true' : 'false';
+              if (info.locked) {
+                b.classList.add('locked-view-only');
+                b.innerHTML = HEBREW_MONTHS[info.month-1] + ' \u2019' + String(info.year).slice(2) +
+                  '<br><small style="font-size:10px;font-weight:600;">\uD83D\uDD12 \u05DC\u05E6\u05E4\u05D9\u05D9\u05D4 \u05D1\u05DC\u05D1\u05D3</small>';
+              }
+            }
+          });
+        })
+        .withFailureHandler(function() {})
+        .getSubmissionStatus();
+    }

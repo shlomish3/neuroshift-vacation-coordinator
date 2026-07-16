@@ -1,0 +1,3 @@
+﻿let selectedMonth = null;
+    let selectedYear  = null;
+    let selectedMonthIsLocked = false;

@@ -1,0 +1,1992 @@
+<script>
+    let currentDocRole = null;
+    let lastFetchedEmail = null;
+    let selectedMonth = null;
+    let selectedYear  = null;
+    let selectedMonthIsLocked = false;
+
+    function lookupDoctor() {
+      const emailInput = document.getElementById('doctorEmail');
+      const nameInput = document.getElementById('doctorName');
+      const emailError = document.getElementById('emailError');
+      const calendarsSection = document.getElementById('calendarsSection');
+      const email = emailInput.value.toLowerCase().trim();
+      
+      if (!email) {
+        nameInput.value = "";
+        emailError.style.display = "none";
+        emailInput.classList.remove("invalid-input");
+        calendarsSection.style.display = "none";
+        currentDocRole = null;
+        document.getElementById('managerLoginBtn').style.display = 'none';
+        return false;
+      }
+
+      if (doctorDatabase[email]) {
+        nameInput.value = doctorDatabase[email].name;
+        currentDocRole = doctorDatabase[email].role;
+        emailError.style.display = "none";
+        emailInput.classList.remove("invalid-input");
+        calendarsSection.style.display = "block";
+        document.getElementById('calendarContent').style.display = 'none';
+
+        const managerLoginBtn = document.getElementById('managerLoginBtn');
+        if (godModeUsersList && godModeUsersList.includes(email)) {
+          managerLoginBtn.style.display = 'inline-block';
+        } else {
+          managerLoginBtn.style.display = 'none';
+        }
+
+        if (email !== lastFetchedEmail) {
+          lastFetchedEmail = email;
+          selectedMonth = null;
+          selectedYear  = null;
+          initMonthSelector(email);
+        }
+
+        return true;
+      } else {
+        nameInput.value = "";
+        currentDocRole = null;
+        emailError.style.display = "block";
+        emailInput.classList.add("invalid-input");
+        calendarsSection.style.display = "none";
+        document.getElementById('managerLoginBtn').style.display = 'none';
+        return false;
+      }
+    }
+
+    // ── Month selector ──────────────────────────────────────────────────────
+    const HEBREW_MONTHS = ['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];
+
+    function initMonthSelector(email) {
+      const container = document.getElementById('monthBtns');
+      container.innerHTML = '';
+      const today = new Date();
+      const monthBtnMap = {};
+      for (let i = 1; i <= 3; i++) {
+        let m = today.getMonth() + 1 + i;
+        let y = today.getFullYear();
+        if (m > 12) { m -= 12; y++; }
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'month-select-btn';
+        btn.dataset.month  = m;
+        btn.dataset.year   = y;
+        btn.dataset.locked = 'false';
+        btn.innerText = HEBREW_MONTHS[m-1] + ' ’' + String(y).slice(2);
+        btn.onclick = () => onMonthSelect(m, y, btn);
+        container.appendChild(btn);
+        monthBtnMap[m + '-' + y] = btn;
+      }
+      // Fetch lock status and pre-mark locked buttons
+      google.script.run
+        .withSuccessHandler(function(s) {
+          if (!s || !s.months) return;
+          s.months.forEach(function(info) {
+            const b = monthBtnMap[info.month + '-' + info.year];
+            if (b) {
+              b.dataset.locked = info.locked ? 'true' : 'false';
+              if (info.locked) {
+                b.classList.add('locked-view-only');
+                b.innerHTML = HEBREW_MONTHS[info.month-1] + ' ’' + String(info.year).slice(2) +
+                  '<br><small style="font-size:10px;font-weight:600;">🔒 לצפייה בלבד</small>';
+              }
+            }
+          });
+        })
+        .withFailureHandler(function() {})
+        .getSubmissionStatus();
+    }
+
+function onMonthSelect(month, year, clickedBtn) {
+      selectedMonth = month;
+      selectedYear  = year;
+
+      // Highlight selected button
+      document.querySelectorAll('.month-select-btn').forEach(b => b.classList.remove('active'));
+      if (clickedBtn) clickedBtn.classList.add('active');
+
+      // Show calendar content
+      document.getElementById('calendarContent').style.display = 'block';
+      // Lock: apply cached state; then confirm from server (race-condition safe)
+      const _sb = document.getElementById('submitBtn');
+      const _ln = document.getElementById('lockNotice');
+      const _cached = !!(clickedBtn && clickedBtn.dataset.locked === 'true');
+      selectedMonthIsLocked = _cached;
+      if (_sb) _sb.disabled = _cached;
+      if (_ln) _ln.style.display = _cached ? 'block' : 'none';
+      google.script.run
+        .withSuccessHandler(function(s) {
+          if (!s || !s.months) return;
+          const inf = s.months.find(function(x){ return x.month === month && x.year === year; });
+          const srv = inf ? inf.locked : false;
+          selectedMonthIsLocked = srv;
+          if (_sb) _sb.disabled = srv;
+          if (_ln) _ln.style.display = srv ? 'block' : 'none';
+          if (clickedBtn) {
+            clickedBtn.dataset.locked = srv ? 'true' : 'false';
+            if (srv && !clickedBtn.classList.contains('locked-view-only')) {
+              clickedBtn.classList.add('locked-view-only');
+              clickedBtn.innerHTML = HEBREW_MONTHS[month-1] + ' ’' + String(year).slice(2) + '<br><small style=\"font-size:10px;font-weight:600;\">🔒 לצפייה בלבד</small>';
+            }
+          }
+        })
+        .withFailureHandler(function(){})
+        .getSubmissionStatus();
+
+      // Update calendar ranges to selected month
+      const firstDay = new Date(year, month - 1, 1);
+      const lastDay  = new Date(year, month, 0);   // last day of month
+
+      if (typeof fpCannot !== 'undefined') {
+        fpCannot.set('minDate', firstDay);
+        fpCannot.set('maxDate', lastDay);
+      }
+      if (typeof fpVacation !== 'undefined') {
+        fpVacation.set('minDate', firstDay);
+        fpVacation.set('maxDate', lastDay);
+      }
+      if (typeof fpPreferred !== 'undefined') {
+        fpPreferred.set('minDate', firstDay);
+        fpPreferred.set('maxDate', lastDay);
+      }
+
+      // Clear other fields
+      importantDatesSet.clear();
+      document.getElementById('datesImportant').value = '';
+      document.getElementById('freeText').value = '';
+
+      // Load existing data for this email + month
+      const email = document.getElementById('doctorEmail').value.toLowerCase().trim();
+      document.getElementById('loadingOverlay').style.display = 'flex';
+
+      google.script.run
+        .withSuccessHandler(function(data) {
+          document.getElementById('loadingOverlay').style.display = 'none';
+          if (data && (data.datesCannot || data.datesVacation || data.datesPreferred || data.freeText)) {
+            document.getElementById('formTitle').innerText = 'עדכון אילוצים וחופשים';
+            
+            if (data.datesCannot) fpCannot.setDate(data.datesCannot.split(', '));
+            else fpCannot.clear();
+            
+            if (data.datesVacation) fpVacation.setDate(data.datesVacation.split(', '));
+            else fpVacation.clear();
+            
+            importantDatesSet.clear();
+            document.getElementById('datesImportant').value = '';
+            if (data.datesImportant) {
+              importantDatesSet = new Set(data.datesImportant.split(', ').filter(Boolean));
+              document.getElementById('datesImportant').value = data.datesImportant;
+            }
+            if (data.datesPreferred) {
+              fpPreferred.setDate(data.datesPreferred.split(', '));
+            } else {
+              fpPreferred.clear();
+            }
+            
+            document.getElementById('freeText').value = data.freeText || '';
+            showToast('הבקשה הקודמת נטענה בהצלחה!');
+          } else {
+            document.getElementById('formTitle').innerText = 'תורנויות וחופשים ניורולוגיה';
+            fpCannot.clear();
+            fpVacation.clear();
+            fpPreferred.clear();
+          }
+          
+          if (typeof fpCannot !== 'undefined') fpCannot.jumpToDate(firstDay);
+          if (typeof fpVacation !== 'undefined') fpVacation.jumpToDate(firstDay);
+          if (typeof fpPreferred !== 'undefined') fpPreferred.jumpToDate(firstDay);
+        })
+        .withFailureHandler(function() {
+          document.getElementById('loadingOverlay').style.display = 'none';
+          showToast('שגיאה בטעינת נתונים');
+          
+          if (typeof fpCannot !== 'undefined') fpCannot.jumpToDate(firstDay);
+          if (typeof fpVacation !== 'undefined') fpVacation.jumpToDate(firstDay);
+          if (typeof fpPreferred !== 'undefined') fpPreferred.jumpToDate(firstDay);
+        })
+        .getPreviousDataByEmail(email, month, year);
+    }
+
+    const today = new Date();
+    let nextMonthYear = today.getFullYear();
+    let nextMonth = today.getMonth() + 1;
+    if (nextMonth > 11) { nextMonth = 0; nextMonthYear++; }
+    const firstDayOfNextMonth = new Date(nextMonthYear, nextMonth, 1);
+    
+    let nextNextMonthYear = nextMonthYear;
+    let nextNextMonth = nextMonth + 1;
+    if (nextNextMonth > 11) { nextNextMonth = 0; nextNextMonthYear++; }
+    const lastDayOfNextMonth = new Date(nextNextMonthYear, nextNextMonth, 0);
+
+    let existingVacations = {};
+    let existingNotes = {};
+    let systemHolidays = {};
+
+    document.getElementById('globalLoadingIndicator').style.display = 'block';
+
+    function populateMonthFilter() {
+      const filterSelectFrom = document.getElementById('managerMonthFilterFrom');
+      const filterSelectTo = document.getElementById('managerMonthFilterTo');
+      if (!filterSelectFrom || !filterSelectTo) return;
+      
+      const months = new Set();
+      for (const date in existingVacations) {
+         const parts = date.split('/');
+         if (parts.length >= 3) {
+           months.add(`${parts[1]}-${parts[2]}`); 
+         }
+      }
+      
+      const currentFrom = filterSelectFrom.value;
+      const currentTo = filterSelectTo.value;
+      
+      filterSelectFrom.innerHTML = '';
+      filterSelectTo.innerHTML = '';
+      
+      const sortedMonths = Array.from(months).sort((a,b) => {
+         const [ma, ya] = a.split('-');
+         const [mb, yb] = b.split('-');
+         return new Date(ya, ma-1) - new Date(yb, mb-1);
+      });
+      
+      sortedMonths.forEach(m => {
+         const opt1 = document.createElement('option');
+         opt1.value = m; opt1.text = m.replace('-', '/');
+         filterSelectFrom.appendChild(opt1);
+         
+         const opt2 = document.createElement('option');
+         opt2.value = m; opt2.text = m.replace('-', '/');
+         filterSelectTo.appendChild(opt2);
+      });
+      
+      if (currentFrom && currentFrom !== "הכל") filterSelectFrom.value = currentFrom;
+      else if (sortedMonths.length > 0) filterSelectFrom.value = sortedMonths[0];
+      
+      if (currentTo && currentTo !== "הכל") filterSelectTo.value = currentTo;
+      else if (sortedMonths.length > 0) filterSelectTo.value = sortedMonths[sortedMonths.length - 1];
+    }
+
+    google.script.run
+      .withSuccessHandler(function(data) {
+        if (data) {
+          existingVacations = data.dates || {};
+          existingNotes = data.notes || {};
+          systemHolidays = data.holidays || {};
+          if (systemHolidays["error"]) { showCustomAlert("שגיאת טעינת חגים: " + systemHolidays["error"], "⚠️"); }
+          populateMonthFilter();
+        }
+        if (typeof fpCannot   !== 'undefined') fpCannot.redraw();
+        if (typeof fpVacation !== 'undefined') fpVacation.redraw();
+        if (typeof fpPreferred !== 'undefined') fpPreferred.redraw();
+        if (typeof fpMgrUnified !== 'undefined' && fpMgrUnified) {
+          fpMgrUnified.redraw();
+          renderUnifiedCalendar();
+          loadRosterMonthDisplay();
+        }
+        document.getElementById('globalLoadingIndicator').style.display = 'none';
+      })
+      .withFailureHandler(function(err) {
+        document.getElementById('globalLoadingIndicator').style.display = 'none';
+        console.warn('getExistingVacations page-load failed:', err);
+      })
+      .getExistingVacations();
+
+    function showToast(msg) {
+      const toast = document.getElementById("toastMessage");
+      toast.innerText = msg;
+      toast.className = "show";
+      setTimeout(function(){ toast.className = toast.className.replace("show", ""); }, 3000);
+    }
+
+        function renderIndicator(instance, dayElem, targetType) {
+      // Adjacent-month overflow days: skip entirely — let CSS opacity handle the dimming
+      if (dayElem.classList.contains('prevMonthDay') || dayElem.classList.contains('nextMonthDay')) return;
+
+      const dObj = dayElem.dateObj;
+      const dateString = instance.formatDate(dObj, "d/m/Y");
+      if (!existingVacations[dateString]) return;
+
+      const colleagues = existingVacations[dateString].filter(v =>
+        (currentDocRole ? v.role === currentDocRole : true) &&
+        v.type === targetType &&
+        v.status !== 'Revoked'
+      );
+      if (colleagues.length === 0) return;
+
+      const isSelected = !!(instance && instance.selectedDates &&
+        instance.selectedDates.some(d => instance.formatDate(d, "d/m/Y") === dateString));
+
+      // Both calendars: add +1 when user selects a date (combines user + colleagues intensity)
+      // The CSS shows the user's own color on the LEFT half; the right half uses this +1 count
+      const count = isSelected ? colleagues.length + 1 : colleagues.length;
+
+      // Both calendars share the same yellow→orange→amber discrete palette for "others" heatmap
+      let color, borderColor, isDark = false;
+      if      (count === 1) { color = 'rgba(255, 234, 155, 0.90)'; borderColor = 'rgba(230, 175, 45, 0.85)'; }
+      else if (count === 2) { color = 'rgba(243, 185, 65, 0.88)';  borderColor = 'rgba(210, 145, 25, 0.95)'; }
+      else if (count === 3) { color = 'rgba(230, 126, 34, 0.88)';  borderColor = 'rgba(200, 95, 15, 0.95)'; isDark = true; }
+      else if (count === 4) { color = 'rgba(211, 84, 0, 0.92)';    borderColor = 'rgba(175, 55, 0, 1.0)';   isDark = true; }
+      else                  { color = 'rgba(150, 55, 0, 1.0)';     borderColor = 'rgba(120, 35, 0, 1.0)';   isDark = true; }
+
+      // Workers see ForcedLeave as regular blocked — no purple distinction on their calendar
+      const typeLabel = targetType === "חופש" ? "בחופש" : "חסום לתורנות";
+
+      dayElem.style.backgroundColor = color;
+      dayElem.style.boxShadow = "inset 0 0 0 1px " + borderColor;
+      if (isDark) dayElem.style.color = "#fff";
+
+      if (targetType === "חופש") {
+        dayElem.classList.add("has-colleagues-vacation");
+        dayElem.style.setProperty("--heatmap-color", color);
+      } else if (targetType === "לא יכול תורנות") {
+        dayElem.classList.add("has-colleagues-cannot");
+        dayElem.style.setProperty("--cannot-heatmap-color", color);
+      }
+
+      const namesStr = colleagues.map(v => v.name).join(', ');
+      dayElem.title = typeLabel + ": " + namesStr;
+      dayElem.addEventListener('click', function(e) {
+        showToast(typeLabel + ": " + namesStr);
+      });
+    }
+
+    const commonConfig = {
+      mode: "multiple",
+      dateFormat: "d/m/Y",
+      locale: "he",
+      inline: true,
+      showMonths: 1
+    };
+
+    // ── Calendar mutual-exclusion helpers ─────────────────────────────────
+    function _fmtD(d) {
+      return String(d.getDate()).padStart(2,'0') + '/' + String(d.getMonth()+1).padStart(2,'0') + '/' + d.getFullYear();
+    }
+    let _calSyncing = false;
+
+    const cannotConfig = Object.assign({}, commonConfig, { 
+      minDate: firstDayOfNextMonth,
+      maxDate: lastDayOfNextMonth,
+      monthSelectorType: "static",
+      onDayCreate: function(dObj, dStr, fp, dayElem) {
+        const dateStr = fp.formatDate(dayElem.dateObj, "d/m/Y");
+        if (typeof systemHolidays !== 'undefined' && systemHolidays[dateStr]) {
+          const hBadge = document.createElement('div');
+          hBadge.innerText = systemHolidays[dateStr];
+          hBadge.style.position = 'absolute';
+          hBadge.style.bottom = '1px';
+          hBadge.style.left = '50%';
+          hBadge.style.transform = 'translateX(-50%)';
+          hBadge.style.fontSize = '7.5px';
+          hBadge.style.color = '#8e44ad';
+          hBadge.style.fontWeight = 'bold';
+          hBadge.style.whiteSpace = 'nowrap';
+          hBadge.style.overflow = 'hidden';
+          hBadge.style.textOverflow = 'ellipsis';
+          hBadge.style.maxWidth = '100%';
+          hBadge.style.padding = '0 2px';
+          hBadge.style.pointerEvents = 'none';
+          hBadge.style.zIndex = '5';
+          dayElem.appendChild(hBadge);
+        }
+        if (typeof renderIndicator === 'function') renderIndicator(fp, dayElem, 'לא יכול תורנות');
+      },
+      onChange: function(selectedDates) {
+        if (_calSyncing) return;
+        _calSyncing = true;
+        try {
+          var cStrs = selectedDates.map(_fmtD);
+          if (typeof fpPreferred !== 'undefined') {
+            var pFilt = fpPreferred.selectedDates.filter(function(d){ return !cStrs.includes(_fmtD(d)); });
+            if (pFilt.length !== fpPreferred.selectedDates.length) {
+              fpPreferred.setDate(pFilt, false);
+              var pStrs = pFilt.map(_fmtD);
+              importantDatesSet.forEach(function(d){ if (!pStrs.includes(d)) importantDatesSet.delete(d); });
+              var impEl = document.getElementById('datesImportant');
+              if (impEl) impEl.value = Array.from(importantDatesSet).join(', ');
+            }
+            fpPreferred.set('disable', selectedDates.slice());
+            fpPreferred.redraw();
+          }
+        } finally { _calSyncing = false; }
+      }
+    });
+
+    const vacationConfig = Object.assign({}, commonConfig, { 
+      minDate: firstDayOfNextMonth,
+      // No maxDate — workers can browse and submit for any future month
+      monthSelectorType: "static",
+      onDayCreate: function(dObj, dStr, fp, dayElem) {
+        const dateStr = fp.formatDate(dayElem.dateObj, "d/m/Y");
+        if (typeof systemHolidays !== 'undefined' && systemHolidays[dateStr]) {
+          const hBadge = document.createElement('div');
+          hBadge.innerText = systemHolidays[dateStr];
+          hBadge.style.position = 'absolute';
+          hBadge.style.bottom = '1px';
+          hBadge.style.left = '50%';
+          hBadge.style.transform = 'translateX(-50%)';
+          hBadge.style.fontSize = '7.5px';
+          hBadge.style.color = '#8e44ad';
+          hBadge.style.fontWeight = 'bold';
+          hBadge.style.whiteSpace = 'nowrap';
+          hBadge.style.overflow = 'hidden';
+          hBadge.style.textOverflow = 'ellipsis';
+          hBadge.style.maxWidth = '100%';
+          hBadge.style.padding = '0 2px';
+          hBadge.style.pointerEvents = 'none';
+          hBadge.style.zIndex = '5';
+          dayElem.appendChild(hBadge);
+        }
+        if (typeof renderIndicator === 'function') renderIndicator(fp, dayElem, 'חופש');
+      }
+    });
+
+    const fpCannot = flatpickr("#datesCannot", cannotConfig);
+    const fpVacation = flatpickr("#datesVacation", vacationConfig);
+    let importantDatesSet = new Set();
+    const preferredConfig = Object.assign({}, commonConfig, { 
+      minDate: firstDayOfNextMonth,
+      maxDate: lastDayOfNextMonth,
+      monthSelectorType: "static",
+      onDayCreate: function(selectedDates, dateStr, instance, dayElem) {
+        const dStr2 = instance.formatDate(dayElem.dateObj, "d/m/Y");
+        if (typeof systemHolidays !== 'undefined' && systemHolidays[dStr2]) {
+          const hBadge = document.createElement('div');
+          hBadge.innerText = systemHolidays[dStr2];
+          hBadge.style.position = 'absolute';
+          hBadge.style.bottom = '1px';
+          hBadge.style.left = '50%';
+          hBadge.style.transform = 'translateX(-50%)';
+          hBadge.style.fontSize = '7.5px';
+          hBadge.style.color = '#8e44ad';
+          hBadge.style.fontWeight = 'bold';
+          hBadge.style.whiteSpace = 'nowrap';
+          hBadge.style.overflow = 'hidden';
+          hBadge.style.textOverflow = 'ellipsis';
+          hBadge.style.maxWidth = '100%';
+          hBadge.style.padding = '0 2px';
+          hBadge.style.pointerEvents = 'none';
+          hBadge.style.zIndex = '5';
+          dayElem.appendChild(hBadge);
+        }
+        const starBtn = document.createElement('span');
+        starBtn.innerHTML = '★';
+        starBtn.className = 'favorite-star';
+        const dObj = dayElem.dateObj;
+        const dateString = instance.formatDate(dObj, "d/m/Y");
+        
+        if (importantDatesSet.has(dateString)) {
+          dayElem.classList.add('is-important');
+        }
+        
+        starBtn.addEventListener('click', function(e) {
+          e.stopPropagation();
+          if (!dayElem.classList.contains('selected')) return;
+          
+          if (importantDatesSet.has(dateString)) {
+            importantDatesSet.delete(dateString);
+            dayElem.classList.remove('is-important');
+          } else {
+            importantDatesSet.add(dateString);
+            dayElem.classList.add('is-important');
+          }
+          document.getElementById('datesImportant').value = Array.from(importantDatesSet).join(', ');
+        });
+        
+        dayElem.appendChild(starBtn);
+      },
+      onChange: function(selectedDates, dateStr, instance) {
+        const selectedStrs = selectedDates.map(d => instance.formatDate(d, "d/m/Y"));
+        const currentImportant = Array.from(importantDatesSet);
+        currentImportant.forEach(impDate => {
+          if (!selectedStrs.includes(impDate)) {
+            importantDatesSet.delete(impDate);
+          }
+        });
+        document.getElementById('datesImportant').value = Array.from(importantDatesSet).join(', ');
+        // Mutual exclusion: gray out + deselect conflicts in fpCannot
+        if (!_calSyncing) {
+          _calSyncing = true;
+          try {
+            if (typeof fpCannot !== 'undefined') {
+              var cFilt = fpCannot.selectedDates.filter(function(d){ return !selectedStrs.includes(_fmtD(d)); });
+              if (cFilt.length !== fpCannot.selectedDates.length) fpCannot.setDate(cFilt, false);
+              fpCannot.set('disable', selectedDates.slice());
+              fpCannot.redraw();
+            }
+          } finally { _calSyncing = false; }
+        }
+      }
+    });
+
+    const fpPreferred = flatpickr("#datesPreferred", preferredConfig);
+
+    function submitForm(e) {
+      e.preventDefault();
+
+      // Block submission if month is view-only (locked)
+      if (selectedMonthIsLocked) {
+        showCustomAlert(HEBREW_MONTHS[(selectedMonth||1)-1] + ' ’' + String(selectedYear||'').slice(2) + ' 🔒', '🔒');
+        return false;
+      }
+
+      const btn = document.getElementById('submitBtn');
+      const statusDiv = document.getElementById('status');
+
+      if (!lookupDoctor()) {
+        statusDiv.innerHTML = '<span class="error">אנא תקן את האימייל לפני שליחה</span>';
+        return;
+      }
+
+      const email        = document.getElementById('doctorEmail').value;
+      const name         = document.getElementById('doctorName').value;
+      const datesCannot  = document.getElementById('datesCannot').value;
+      const datesVacation= document.getElementById('datesVacation').value;
+      const datesPreferred = document.getElementById('datesPreferred').value;
+      const freeText     = document.getElementById('freeText').value;
+      const editId       = document.getElementById('editId').value;
+
+      if (!datesCannot && !datesVacation && !datesPreferred && !freeText) {
+        statusDiv.innerHTML = '<span class="error">אנא בחרו לפחות תאריך אחד או הוסיפו הערה</span>';
+        return;
+      }
+
+      // Build a human-readable summary for the confirmation popup
+      let summary = `שם: ${name}`;
+      if (datesCannot)   summary += `\n\nחסום תורנות/כוננות: ${datesCannot}`;
+      if (datesVacation) summary += `\n\nחופש: ${datesVacation}`;
+      if (datesPreferred)summary += `\n\nמועדף: ${datesPreferred}`;
+      if (freeText)      summary += `\n\nהערה: ${freeText}`;
+      summary += '\n\nהאם לשלוח את הבקשה?';
+
+      showCustomConfirm(summary, () => _doSubmitForm(email, name, datesCannot, datesVacation, datesPreferred, freeText, btn, statusDiv), null, '📋');
+    }
+
+    function _doSubmitForm(email, name, datesCannot, datesVacation, datesPreferred, freeText, btn, statusDiv) {
+      btn.disabled = true;
+      btn.innerText = '\u05e9\u05d5\u05dc\u05d7 \u05e0\u05ea\u05d5\u05e0\u05d9\u05dd...';
+      statusDiv.innerHTML = '';
+
+      if (!selectedMonth || !selectedYear) {
+        showCustomAlert('\u05d0\u05e0\u05d0 \u05d1\u05d7\u05e8 \u05d7\u05d5\u05d3\u05e9 \u05dc\u05d4\u05d2\u05e9\u05d4 \u05dc\u05e4\u05e0\u05d9 \u05d4\u05e9\u05dc\u05d9\u05d7\u05d4.', 'warning');
+        btn.disabled = false; btn.innerText = '\u05e9\u05dc\u05d7 \u05d1\u05e7\u05e9\u05d4'; return;
+      }
+
+      // Show loading overlay while the server processes the request
+      const overlay = document.getElementById('loadingOverlay');
+      const origText = overlay ? overlay.innerHTML : '';
+      if (overlay) {
+        overlay.innerHTML = '<div style="text-align:center;font-size:1.15rem;font-weight:600;">\u05d4\u05d1\u05e7\u05e9\u05d4 \u05e0\u05e9\u05dc\u05d7\u05ea...</div>';
+        overlay.style.display = 'flex';
+      }
+
+      const formData = {
+        name:           name,
+        email:          email,
+        datesCannot:    datesCannot,
+        datesVacation:  datesVacation,
+        datesPreferred: datesPreferred,
+        datesImportant: document.getElementById('datesImportant').value,
+        freeText:       freeText,
+        targetMonth:    selectedMonth,
+        targetYear:     selectedYear
+      };
+
+      google.script.run
+        .withSuccessHandler(function(response) {
+          if (overlay) { overlay.style.display = 'none'; overlay.innerHTML = origText; }
+          if (response && response.status === 'Locked') {
+            showCustomAlert('\u05d4\u05d2\u05e9\u05d5\u05ea \u05e0\u05e2\u05d5\u05dc\u05d5\u05ea \u05db\u05e8\u05d2\u05e2 \u05e2\u05dc \u05d9\u05d3\u05d9 \u05d4\u05de\u05e0\u05d4\u05dc. \u05e0\u05d9\u05ea\u05df \u05dc\u05e4\u05e0\u05d5\u05ea \u05dc\u05de\u05e0\u05d4\u05dc \u05dc\u05e4\u05e8\u05d8\u05d9\u05dd.', '\ud83d\udd12');
+            btn.disabled = false; btn.innerText = '\u05e9\u05dc\u05d7 \u05d1\u05e7\u05e9\u05d4'; return;
+          }
+          if (response && response.status === "Success") {
+            document.getElementById('editId').value = response.editId;
+            document.getElementById('mainCard').style.display = 'none';
+            document.getElementById('confirmationCard').style.display = 'flex';
+            statusDiv.innerHTML = '';
+          } else {
+            statusDiv.innerHTML = '<span class="error">' + response + '</span>';
+          }
+          btn.disabled = false;
+          btn.innerText = '\u05e9\u05dc\u05d7 \u05d1\u05e7\u05e9\u05d4';
+        })
+        .withFailureHandler(function(error) {
+          if (overlay) { overlay.style.display = 'none'; overlay.innerHTML = origText; }
+          statusDiv.innerHTML = '<span class="error">\u05e9\u05d2\u05d9\u05d0\u05d4 \u05d1\u05ea\u05e7\u05e9\u05d5\u05e8\u05ea. \u05d0\u05e0\u05d0 \u05e0\u05e1\u05d5 \u05e9\u05e0\u05d9\u05ea.</span>';
+          btn.disabled = false;
+          btn.innerText = '\u05e9\u05dc\u05d7 \u05d1\u05e7\u05e9\u05d4';
+        })
+        .processForm(formData);
+    }
+
+
+    function escapeHtml(unsafe) {
+      if (!unsafe) return "";
+      return String(unsafe)
+           .replace(/&/g, "&amp;")
+           .replace(/</g, "&lt;")
+           .replace(/>/g, "&gt;")
+           .replace(/"/g, "&quot;")
+           .replace(/'/g, "&#039;");
+    }
+
+    function editAgain() {
+      document.getElementById('confirmationCard').style.display = 'none';
+      document.getElementById('mainCard').style.display = 'block';
+      document.getElementById('formTitle').innerText = "עדכון אילוצים וחופשים";
+    }
+
+    
+
+    // -- God mode: Close Month helpers --
+    const HEBREW_MONTHS_LOCK = ['\u05D9\u05E0\u05D5\u05D0\u05E8','\u05E4\u05D1\u05E8\u05D5\u05D0\u05E8','\u05DE\u05E8\u05E5','\u05D0\u05E4\u05E8\u05D9\u05DC','\u05DE\u05D0\u05D9','\u05D9\u05D5\u05E0\u05D9','\u05D9\u05D5\u05DC\u05D9','\u05D0\u05D5\u05D2\u05D5\u05E1\u05D8','\u05E1\u05E4\u05D8\u05DE\u05D1\u05E8','\u05D0\u05D5\u05E7\u05D8\u05D5\u05D1\u05E8','\u05E0\u05D5\u05D1\u05DE\u05D1\u05E8','\u05D3\u05E6\u05DE\u05D1\u05E8'];
+
+    function loadSubmissionStatus() {
+      google.script.run
+        .withSuccessHandler(function(s) {
+          const container = document.getElementById('monthLockCards');
+          if (!container) return;
+          container.innerHTML = '';
+          if (!s.months) return;
+          s.months.forEach(function(m) {
+            const isLocked = m.locked;
+            const card = document.createElement('div');
+            card.className = 'month-lock-card ' + (isLocked ? 'locked-month' : 'open-month');
+            const name = HEBREW_MONTHS_LOCK[m.month-1] + ' \u2019' + String(m.year).slice(2);
+            const badgeClass = isLocked ? 'badge-locked' : 'badge-open';
+            const badgeText  = isLocked ? '\u25CF \u05E0\u05E2\u05D5\u05DC \uD83D\uDD12' : '\u25CF \u05E4\u05EA\u05D5\u05D7';
+            const btnClass   = isLocked ? 'btn-unlock' : 'btn-lock';
+            const btnText    = isLocked ? '\u05E4\u05EA\u05D7 \uD83D\uDD13' : '\u05E0\u05E2\u05DC \uD83D\uDD12';
+            card.innerHTML = '<div class="month-lock-name">' + name + '</div>' +
+              '<div class="month-lock-badge ' + badgeClass + '">' + badgeText + '</div>' +
+              '<button class="month-lock-btn ' + btnClass + '" onclick="toggleSubmissionLock(\'' + m.key + '\', this)">' + btnText + '</button>';
+            container.appendChild(card);
+          });
+        })
+        .getSubmissionStatus();
+    }
+
+    function toggleSubmissionLock(monthKey, btn) {
+      const card     = btn ? btn.closest('.month-lock-card') : null;
+      const isLocked = card && card.classList.contains('locked-month');
+      const msg = isLocked
+        ? '\u05D4\u05D0\u05DD \u05DC\u05E4\u05EA\u05D5\u05D7 \u05D0\u05EA \u05D4\u05D4\u05D2\u05E9\u05D5\u05EA \u05DC\u05D7\u05D5\u05D3\u05E9 \u05D6\u05D4?'
+        : '\u05D4\u05D0\u05DD \u05DC\u05E0\u05E2\u05D5\u05DC \u05D0\u05EA \u05D4\u05D4\u05D2\u05E9\u05D5\u05EA \u05DC\u05D7\u05D5\u05D3\u05E9 \u05D6\u05D4? \u05E2\u05D5\u05D1\u05D3\u05D9\u05DD \u05DC\u05D0 \u05D9\u05D5\u05DB\u05DC\u05D5 \u05DC\u05E9\u05DC\u05D5\u05D7 \u05E2\u05D3 \u05E9\u05EA\u05E4\u05EA\u05D7.';
+      showCustomConfirm(msg, function() {
+        google.script.run
+          .withSuccessHandler(function() {
+            loadSubmissionStatus();
+            showToast(isLocked ? '\u05D4\u05D2\u05E9\u05D5\u05EA \u05E0\u05E4\u05EA\u05D7\u05D5!' : '\u05D4\u05D2\u05E9\u05D5\u05EA \u05E0\u05E0\u05E2\u05DC\u05D5.');
+          })
+          .withFailureHandler(function() { showToast('\u05E9\u05D2\u05D9\u05D0\u05D4. \u05E0\u05E1\u05D4 \u05E9\u05E0\u05D9\u05EA.'); })
+          .setSubmissionLock(monthKey, !isLocked);
+      }, null, isLocked ? '\uD83D\uDD13' : '\uD83D\uDD12');
+    }
+
+    function doArchiveMonth() {
+      showCustomConfirm(
+        '\u05E4\u05E2\u05D5\u05DC\u05D4 \u05D6\u05D5 \u05EA\u05E2\u05EA\u05D9\u05E7 \u05D0\u05EA "\u05EA\u05D2\u05D5\u05D1\u05D5\u05EA \u05DC\u05D8\u05D5\u05E4\u05E1 1" \u05DC\u05D2\u05D9\u05DC\u05D9\u05D5\u05DF \u05D7\u05D3\u05E9 \u05E2\u05DD \u05E9\u05DD \u05D4\u05D7\u05D5\u05D3\u05E9 \u05D4\u05E0\u05D5\u05DB\u05D7\u05D9,\n\u05D5\u05EA\u05DE\u05D7\u05E7 \u05D0\u05EA \u05D4\u05E0\u05EA\u05D5\u05E0\u05D9\u05DD \u05DE\u05D4\u05D2\u05D9\u05DC\u05D9\u05D5\u05DF \u05D4\u05E4\u05E2\u05D9\u05DC.\n\u05D4\u05D0\u05DD \u05DC\u05D4\u05DE\u05E9\u05D9\u05DA?',
+        function() {
+          showToast('\u05DE\u05E2\u05D1\u05D9\u05E8 \u05DC\u05D0\u05E8\u05DB\u05D9\u05D5\u05DF...');
+          google.script.run
+            .withSuccessHandler(function(result) {
+              if (result.success) {
+                showCustomAlert('\u05D4\u05D0\u05E8\u05DB\u05D5\u05D1 \u05D4\u05D5\u05E9\u05DC\u05DD!\n\u05D2\u05D9\u05DC\u05D9\u05D5\u05DF \u05D7\u05D3\u05E9 \u05E0\u05D5\u05E6\u05E8: "' + result.sheetName + '"\n\u05EA\u05D2\u05D5\u05D1\u05D5\u05EA \u05DC\u05D8\u05D5\u05E4\u05E1 1 \u05E0\u05D5\u05E7\u05D4.', '\u2705');
+              } else {
+                showCustomAlert('\u05E9\u05D2\u05D9\u05D0\u05D4 \u05D1\u05D0\u05E8\u05DB\u05D5\u05D1: ' + result.message, '\u274C');
+              }
+            })
+            .withFailureHandler(function() { showCustomAlert('\u05E9\u05D2\u05D9\u05D0\u05EA \u05EA\u05E7\u05E9\u05D5\u05E8\u05EA.', '\u274C'); })
+            .archiveMonth();
+        },
+        null, '\uD83D\uDCE6'
+      );
+    }
+
+    function startNew() {
+      document.getElementById('confirmationCard').style.display = 'none';
+      document.getElementById('mainCard').style.display = 'block';
+      document.getElementById('doctorEmail').value = '';
+      lookupDoctor();
+    }
+
+    window.toggleRequestStatus = function(email, dateStr, newStatus, reqType) {
+    const overlay = document.getElementById('customModalOverlay');
+    const confirmModal = document.getElementById('confirmModal');
+    const textEl = document.getElementById('confirmModalText');
+    const btnYes = document.getElementById('confirmBtnYes');
+    const btnNo = document.getElementById('confirmBtnNo');
+    const reasonInput = document.getElementById('revokeReason');
+    
+    if (reasonInput) reasonInput.value = '';
+    
+    if (newStatus === 'Revoked') {
+      textEl.innerText = 'האם אתה בטוח שברצונך לדחות את הבקשה (' + reqType + ')?';
+      btnYes.innerText = 'דחה בקשה';
+      btnYes.style.background = '#e74c3c';
+      if (reasonInput) reasonInput.style.display = 'block';
+    } else if (newStatus === 'ForcedLeave') {
+      textEl.innerText = 'האם ברצונך להגדיר כחופשה מאולצת (לא תיספר במכסה)?';
+      btnYes.innerText = 'הגדר כמאולצת';
+      btnYes.style.background = '#8e44ad';
+      if (reasonInput) reasonInput.style.display = 'block';
+    } else {
+      textEl.innerText = 'האם אתה בטוח שברצונך לאשר מחדש את הבקשה (' + reqType + ')?';
+      btnYes.innerText = 'כן, אשר בקשה';
+      btnYes.style.background = '#2ecc71';
+      if (reasonInput) reasonInput.style.display = 'none';
+    }
+    
+    overlay.style.display = 'flex';
+    confirmModal.style.display = 'block';
+    document.getElementById('promptModal').style.display = 'none';
+    
+    const close = () => { overlay.style.display = 'none'; confirmModal.style.display = 'none'; };
+    btnNo.onclick = close;
+    
+    btnYes.onclick = () => {
+      close();
+      const reason = reasonInput ? reasonInput.value.trim() : "";
+      document.getElementById('loadingOverlay').style.display = "flex";
+      google.script.run
+      .withSuccessHandler(function(response) {
+        if (response && response.success) {
+          // Update local memory
+          if (existingVacations[dateStr]) {
+            existingVacations[dateStr].forEach(v => {
+              let workerEmail = '';
+              for (const e in doctorDatabase) { if (doctorDatabase[e].name === v.name) { workerEmail = e; break; } }
+              if (workerEmail === email && v.type === reqType) v.status = newStatus;
+            });
+          }
+          // Re-render immediately
+          if (typeof renderUnifiedCalendar === 'function') {
+            renderUnifiedCalendar();
+        loadRosterMonthDisplay();
+          }
+        } else {
+          showCustomAlert("שגיאה בעדכון הסטטוס: " + (response ? response.message : "Unknown error"), "❌");
+        }
+        document.getElementById('loadingOverlay').style.display = "none";
+      })
+      .toggleVacationStatus(email, dateStr, newStatus, reqType, reason);
+    };
+  };
+
+
+    // ── Roster Month Display & Shift ─────────────────────────────────────────
+
+    function loadRosterMonthDisplay() {
+      google.script.run
+        .withSuccessHandler(function(rm) {
+          const badge = document.getElementById('rosterMonthBadge');
+          if (!badge || !rm) return;
+          badge.textContent = (HEBREW_MONTHS[rm.month - 1] || '') + ' \u2019' + String(rm.year).slice(2);
+        })
+        .withFailureHandler(function() {})
+        .getRosterMonth();
+    }
+
+    function shiftRosterMonthUI(delta) {
+      const badge = document.getElementById('rosterMonthBadge');
+      if (badge) badge.textContent = '...';
+      google.script.run
+        .withSuccessHandler(function(result) {
+          if (result && result.success) {
+            const badge2 = document.getElementById('rosterMonthBadge');
+            if (badge2) badge2.textContent = (HEBREW_MONTHS[result.month - 1] || '') + ' \u2019' + String(result.year).slice(2);
+            showToast('\u05D7\u05D5\u05D3\u05E9 \u05E4\u05E2\u05D9\u05DC \u05E2\u05D5\u05D3\u05DB\u05DF \u2714');
+          }
+        })
+        .withFailureHandler(function() { showCustomAlert('\u05E9\u05D2\u05D9\u05D0\u05D4', '\u274C'); })
+        .shiftRosterMonth(delta);
+    }
+
+    // ── Email Blast ──────────────────────────────────────────────────────────
+
+    function loadEmailWorkerList() {
+      const container = document.getElementById('workerChecklist');
+      if (!container) return;
+      container.innerHTML = '<div style="text-align:center;color:#aaa;padding:10px;">\u05D8\u05D5\u05E2\u05DF...</div>';
+      google.script.run
+        .withSuccessHandler(function(workers) {
+          if (!container) return;
+          container.innerHTML = '';
+          if (!workers || workers.length === 0) {
+            container.innerHTML = '<div style="color:#aaa;padding:10px;">\u05DC\u05D0 \u05E0\u05DE\u05E6\u05D0\u05D5 \u05E2\u05D5\u05D1\u05D3\u05D9\u05DD</div>';
+            return;
+          }
+          workers.forEach(function(w) {
+            const div = document.createElement('div');
+            div.className = 'worker-check-item';
+            const lbl = document.createElement('label');
+            const cb  = document.createElement('input');
+            cb.type      = 'checkbox';
+            cb.className = 'worker-cb';
+            cb.value     = w.email;
+            cb.checked   = true;
+            cb.addEventListener('change', updateSelectedCount);
+            const nameSpan  = document.createElement('span');
+            nameSpan.className = 'worker-name';
+            nameSpan.textContent = w.name;
+            const emailSpan = document.createElement('span');
+            emailSpan.className = 'worker-email';
+            emailSpan.textContent = w.email;
+            lbl.appendChild(cb);
+            lbl.appendChild(nameSpan);
+            lbl.appendChild(emailSpan);
+            div.appendChild(lbl);
+            container.appendChild(div);
+          });
+          document.getElementById('selectAllWorkers').checked = true;
+          updateSelectedCount();
+          // Pre-fill subject with current roster month
+          const subj = document.getElementById('blastSubject');
+          if (subj && !subj.value) {
+            google.script.run
+              .withSuccessHandler(function(rm) {
+                if (subj && !subj.value && rm) {
+                  subj.value = '\u05D4\u05D2\u05E9\u05EA \u05D1\u05E7\u05E9\u05D5\u05EA - ' +
+                    (HEBREW_MONTHS[rm.month - 1] || '') + ' \u2019' + String(rm.year).slice(2);
+                }
+              })
+              .withFailureHandler(function() {})
+              .getRosterMonth();
+          }
+          // Pre-fill body template
+          const bodyEl = document.getElementById('blastBody');
+          if (bodyEl && !bodyEl.value) {
+            bodyEl.value = '\u05E9\u05DC\u05D5\u05DD,\n\u05E0\u05E4\u05EA\u05D7\u05D4 \u05D4\u05D2\u05E9\u05EA \u05D1\u05E7\u05E9\u05D5\u05EA \u05DC\u05D7\u05D5\u05E4\u05E9/\u05D0\u05D9-\u05D6\u05DE\u05D9\u05E0\u05D5\u05EA \u05DC\u05D7\u05D5\u05D3\u05E9 \u05D4\u05E7\u05E8\u05D5\u05D1.\n\u05D0\u05E0\u05D0 \u05D4\u05D9\u05DB\u05E0\u05E1\u05D5 \u05DC\u05DE\u05E2\u05E8\u05DB\u05EA \u05D5\u05D4\u05D2\u05D9\u05E9\u05D5 \u05D0\u05EA \u05D1\u05E7\u05E9\u05D5\u05EA\u05D9\u05DB\u05DD.\n\n\u05D1\u05D1\u05E8\u05DB\u05D4,\n\u05E6\u05D5\u05D5\u05EA \u05E0\u05D9\u05D4\u05D5\u05DC \u05EA\u05D5\u05E8\u05E0\u05D5\u05D9\u05D5\u05EA \u05E0\u05D9\u05D5\u05E8\u05D5\u05DC\u05D5\u05D2\u05D9\u05D4';
+          }
+        })
+        .withFailureHandler(function() {
+          if (container) container.innerHTML = '<div style="color:red;padding:10px;">\u05E9\u05D2\u05D9\u05D0\u05D4 \u05D1\u05D8\u05E2\u05D9\u05E0\u05EA \u05D4\u05E8\u05E9\u05D9\u05DE\u05D4</div>';
+        })
+        .getEmailWorkerList();
+    }
+
+    function updateSelectedCount() {
+      const cbs   = document.querySelectorAll('.worker-cb');
+      const checked = document.querySelectorAll('.worker-cb:checked');
+      const span  = document.getElementById('selectedCount');
+      if (span) span.textContent = '\u05E0\u05D1\u05D7\u05E8\u05D5 ' + checked.length + ' \u05DE\u05EA\u05D5\u05DA ' + cbs.length;
+      const saCb = document.getElementById('selectAllWorkers');
+      if (saCb) saCb.checked = (cbs.length > 0 && checked.length === cbs.length);
+    }
+
+    function toggleSelectAll(checked) {
+      document.querySelectorAll('.worker-cb').forEach(function(cb) { cb.checked = checked; });
+      updateSelectedCount();
+    }
+
+    function sendBlast() {
+      const recipients = [];
+      document.querySelectorAll('.worker-cb:checked').forEach(function(cb) {
+        const lbl  = cb.closest('label');
+        const name = lbl ? (lbl.querySelector('.worker-name') || {}).textContent || '' : '';
+        recipients.push({ name: name, email: cb.value });
+      });
+      if (recipients.length === 0) {
+        showCustomAlert('\u05DC\u05D0 \u05E0\u05D1\u05D7\u05E8\u05D5 \u05E2\u05D5\u05D1\u05D3\u05D9\u05DD \u05DC\u05E9\u05DC\u05D9\u05D7\u05D4.', '\u26A0\uFE0F');
+        return;
+      }
+      const subject = (document.getElementById('blastSubject') || {}).value || '';
+      const body    = (document.getElementById('blastBody')    || {}).value || '';
+      if (!subject.trim() || !body.trim()) {
+        showCustomAlert('\u05D0\u05E0\u05D0 \u05DE\u05DC\u05D0 \u05E0\u05D5\u05E9\u05D0 \u05D5\u05D4\u05D5\u05D3\u05E2\u05D4.', '\u26A0\uFE0F');
+        return;
+      }
+      const confirmMsg = '\u05E9\u05DC\u05D9\u05D7\u05EA \u05DE\u05D9\u05D9\u05DC \u05DC-' + recipients.length + ' \u05E2\u05D5\u05D1\u05D3\u05D9\u05DD?';
+      showCustomConfirm(confirmMsg, function() {
+        showToast('\u05E9\u05D5\u05DC\u05D7 \u05DE\u05D9\u05D9\u05DC\u05D9\u05DD...');
+        google.script.run
+          .withSuccessHandler(function(result) {
+            if (result && result.success) {
+              const msg = '\u05E0\u05E9\u05DC\u05D7\u05D5 ' + result.sent + ' \u05DE\u05D9\u05D9\u05DC\u05D9\u05DD \u05D1\u05D4\u05E6\u05DC\u05D7\u05D4.' +
+                (result.failed > 0 ? '\n' + result.failed + ' \u05E0\u05DB\u05E9\u05DC\u05D5.' : '');
+              showCustomAlert(msg, result.failed > 0 ? '\u26A0\uFE0F' : '\u2705');
+            } else {
+              showCustomAlert('\u05E9\u05D2\u05D9\u05D0\u05D4 \u05D1\u05E9\u05DC\u05D9\u05D7\u05D4.', '\u274C');
+            }
+          })
+          .withFailureHandler(function() { showCustomAlert('\u05E9\u05D2\u05D9\u05D0\u05D4 \u05D1\u05E9\u05DC\u05D9\u05D7\u05D4.', '\u274C'); })
+          .sendEmailBlast({ recipients: recipients, subject: subject, body: body });
+      }, null, '\uD83D\uDCE4');
+    }
+
+
+
+    // ── God Mode User Management (super-admin only) ──────────────────────────
+
+    function renderGodModeChips() {
+      const container = document.getElementById('godModeChipList');
+      if (!container) return;
+      container.innerHTML = '';
+      (godModeUsersList || []).forEach(function(email) {
+        const chip = document.createElement('div');
+        const isSuper = (email === 'shlomi.shmuel3@gmail.com');
+        chip.className = 'gm-chip' + (isSuper ? ' super-admin' : '');
+        const lbl = document.createElement('span');
+        lbl.textContent = email;
+        chip.appendChild(lbl);
+        if (isSuper) {
+          const crown = document.createElement('span');
+          crown.textContent = '\uD83D\uDC51';
+          crown.style.fontSize = '11px';
+          chip.appendChild(crown);
+        } else {
+          const btn = document.createElement('button');
+          btn.className = 'gm-chip-remove';
+          btn.innerHTML = '\u00D7';
+          btn.title = '\u05D4\u05E1\u05E8 \u05DE\u05D4\u05E8\u05E9\u05D9\u05DE\u05D4';
+          btn.onclick = (function(e) { return function() { removeGodModeUserUI(e); }; })(email);
+          chip.appendChild(btn);
+        }
+        container.appendChild(chip);
+      });
+    }
+
+    function addGodModeUserUI() {
+      const input = document.getElementById('newGodModeEmail');
+      const newEmail = (input ? input.value : '').trim().toLowerCase();
+      if (!newEmail || !newEmail.includes('@')) {
+        showCustomAlert('\u05D0\u05E0\u05D0 \u05D4\u05DB\u05E0\u05E1 \u05DB\u05EA\u05D5\u05D1\u05EA \u05DE\u05D9\u05D9\u05DC \u05EA\u05E7\u05E0\u05D9\u05EA.', '\u26A0\uFE0F');
+        return;
+      }
+      if ((godModeUsersList || []).includes(newEmail)) {
+        showCustomAlert('\u05DE\u05D9\u05D9\u05DC \u05D6\u05D4 \u05DB\u05D1\u05E8 \u05D1\u05E8\u05E9\u05D9\u05DE\u05D4.', '\u26A0\uFE0F');
+        return;
+      }
+      const newList = (godModeUsersList || []).concat([newEmail]);
+      _saveGodModeUsers(newList, function() { if (input) input.value = ''; });
+    }
+
+    function removeGodModeUserUI(email) {
+      if (email === 'shlomi.shmuel3@gmail.com') return;
+      showCustomConfirm(
+        '\u05D4\u05E1\u05E8 ' + email + ' \u05DE\u05E8\u05E9\u05D9\u05DE\u05EA \u05D4\u05DE\u05E0\u05D4\u05DC\u05D9\u05DD?',
+        function() {
+          const newList = (godModeUsersList || []).filter(function(e) { return e !== email; });
+          _saveGodModeUsers(newList, null);
+        },
+        null,
+        '\uD83D\uDD10'
+      );
+    }
+
+    function _saveGodModeUsers(emailList, onSuccess) {
+      google.script.run
+        .withSuccessHandler(function(result) {
+          if (result && result.success) {
+            godModeUsersList = result.users;
+            renderGodModeChips();
+            showToast('\u05E8\u05E9\u05D9\u05DE\u05EA \u05D4\u05DE\u05E0\u05D4\u05DC\u05D9\u05DD \u05E2\u05D5\u05D3\u05DB\u05E0\u05D4 \u2714');
+            if (typeof onSuccess === 'function') onSuccess();
+          } else {
+            showCustomAlert(result && result.message ? result.message : '\u05E9\u05D2\u05D9\u05D0\u05D4 \u05D1\u05E9\u05DE\u05D9\u05E8\u05D4.', '\u274C');
+          }
+        })
+        .withFailureHandler(function() {
+          showCustomAlert('\u05E9\u05D2\u05D9\u05D0\u05D4 \u05D1\u05E9\u05DE\u05D9\u05E8\u05D4.', '\u274C');
+        })
+        .setGodModeUsers(emailList, (document.getElementById('doctorEmail') || {}).value || '');
+    }
+
+
+  function enterManagerMode() {
+    const overlay = document.getElementById('customModalOverlay');
+    const promptModal = document.getElementById('promptModal');
+    const input = document.getElementById('promptModalInput');
+    const btnYes = document.getElementById('promptBtnYes');
+    const btnNo = document.getElementById('promptBtnNo');
+    
+    input.value = '';
+    overlay.style.display = 'flex';
+    promptModal.style.display = 'block';
+    document.getElementById('confirmModal').style.display = 'none';
+    
+    const close = () => { overlay.style.display = 'none'; promptModal.style.display = 'none'; };
+    btnNo.onclick = close;
+    input.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); btnYes.click(); } };
+    
+    btnYes.onclick = () => {
+      const p = input.value;
+      close();
+      if (p === "god mode") {
+        document.getElementById('mainCard').style.display = 'none';
+        document.getElementById('managerCard').style.display = 'block';
+        if (typeof fpCannot !== 'undefined') fpCannot.redraw();
+        if (typeof fpVacation !== 'undefined') fpVacation.redraw();
+        if (typeof fpPreferred !== 'undefined') fpPreferred.redraw();
+        renderTeamManagementTable();
+        renderUnifiedCalendar();
+        loadRosterMonthDisplay();
+        // Re-fetch fresh vacation data and then render the stats table
+        document.getElementById('loadingOverlay').style.display = 'flex';
+        google.script.run
+          .withSuccessHandler(function(data) {
+            document.getElementById('loadingOverlay').style.display = 'none';
+            if (data) {
+              existingVacations = data.dates || {};
+              existingNotes     = data.notes || {};
+              populateMonthFilter();
+            }
+            renderManagerStats();
+            if (typeof fpMgrUnified !== 'undefined' && fpMgrUnified) { fpMgrUnified.redraw(); renderUnifiedCalendar(); }
+          })
+          .withFailureHandler(function(err) {
+            document.getElementById('loadingOverlay').style.display = 'none';
+            showCustomAlert('שגיאה בטעינת נתונים: ' + (err && err.message ? err.message : err), '⚠️');
+            renderManagerStats();
+          })
+          .getExistingVacations();
+        // Close Month panel: only for super-admin
+        const closeMonthPanel = document.getElementById('closeMonthPanel');
+        if (closeMonthPanel) {
+          const email = document.getElementById('doctorEmail').value.toLowerCase().trim();
+          closeMonthPanel.style.display = email === 'shlomi.shmuel3@gmail.com' ? '' : 'none';
+        }
+        // God Mode users panel: only for super-admin
+        const gmPanel = document.getElementById('godModeUsersPanel');
+        if (gmPanel) {
+          const email2 = document.getElementById('doctorEmail').value.toLowerCase().trim();
+          if (email2 === 'shlomi.shmuel3@gmail.com') {
+            gmPanel.style.display = 'block';
+            renderGodModeChips();
+          } else {
+            gmPanel.style.display = 'none';
+          }
+        }
+        // Notify manager of login
+        const _loginEmail = document.getElementById('doctorEmail').value.toLowerCase().trim();
+        google.script.run.logGodModeLogin(_loginEmail);
+      } else {
+        showCustomAlert("סיסמה שגויה — נסה שנית", "❌");
+      }
+    };
+  }
+
+    function exitManagerMode() {
+      document.getElementById('managerCard').style.display = 'none';
+      document.getElementById('mainCard').style.display = 'block';
+      const cp = document.getElementById('closeMonthPanel');
+      if (cp) cp.style.display = 'none';
+    }
+
+    let managerFilter = 'הכל';
+    function setManagerFilter(filterVal, btnElement) {
+      managerFilter = filterVal;
+      const btns = document.querySelectorAll('.filter-btn');
+      btns.forEach(b => b.classList.remove('active'));
+      btnElement.classList.add('active');
+      
+      if (typeof fpCannot !== 'undefined') fpCannot.redraw();
+      if (typeof fpVacation !== 'undefined') fpVacation.redraw();
+      if (typeof fpPreferred !== 'undefined') fpPreferred.redraw();
+      renderManagerStats();
+      renderUnifiedCalendar();
+    }
+
+    function renderManagerStats() {
+      const tbody = document.querySelector('#managerStatsTable tbody');
+      if (!tbody) return;
+      tbody.innerHTML = '';
+      
+      const filterSelectFrom = document.getElementById('managerMonthFilterFrom');
+      const filterSelectTo = document.getElementById('managerMonthFilterTo');
+      const monthFilterFrom = filterSelectFrom ? filterSelectFrom.value : 'הכל';
+      const monthFilterTo = filterSelectTo ? filterSelectTo.value : 'הכל';
+      
+      const parseMonth = (str) => {
+         if (str === 'הכל' || !str) return null;
+         const parts = str.split('-');
+         return new Date(parseInt(parts[1], 10), parseInt(parts[0], 10) - 1);
+      };
+      
+      const fromDateObj = parseMonth(monthFilterFrom);
+      let toDateObj = parseMonth(monthFilterTo);
+      if (toDateObj) toDateObj = new Date(toDateObj.getFullYear(), toDateObj.getMonth() + 1, 0, 23, 59, 59);
+      
+      const stats = {};
+      const insertionOrder = [];
+      
+      for (const email in doctorDatabase) {
+        const doc = doctorDatabase[email];
+        const primary = doc.primaryEmail || email;
+        if (!stats[primary]) {
+          stats[primary] = {
+            name: doc.name,
+            role: doc.role,
+            vacation: 0,
+            cannot: 0,
+            pref: 0,
+            email: primary
+          };
+          insertionOrder.push(primary);
+        }
+      }
+      
+      for (const date in existingVacations) {
+        const parts = date.split('/');
+        if (parts.length === 3) {
+          const dObj = new Date(parseInt(parts[2], 10), parseInt(parts[1], 10) - 1, parseInt(parts[0], 10));
+          if (fromDateObj && dObj < fromDateObj) continue;
+          if (toDateObj && dObj > toDateObj) continue;
+          
+          existingVacations[date].forEach(v => {
+             if (v.status === 'Revoked') return;
+             let pEmail = null;
+             for (const e in doctorDatabase) {
+               if (doctorDatabase[e].name === v.name) {
+                 pEmail = doctorDatabase[e].primaryEmail || e;
+                 break;
+               }
+             }
+             if (pEmail && stats[pEmail]) {
+                if (v.type === 'חופש' && v.status !== 'ForcedLeave') stats[pEmail].vacation++;
+                if (v.type === 'לא יכול תורנות') stats[pEmail].cannot++;
+                if (v.type === 'מועדף') stats[pEmail].pref++;
+             }
+          });
+        }
+      }
+      
+      const sortedEmails = teamOrder;
+      
+      sortedEmails.forEach(email => {
+         const s = stats[email];
+         if (managerFilter !== 'הכל' && s.role !== managerFilter) return;
+         
+         const hasNotes = existingNotes[s.name] && Object.keys(existingNotes[s.name]).some(m => {
+             if (monthFilterFrom === 'הכל') return true;
+             const [mStr, yStr] = m.split('-');
+             const d = new Date(parseInt(yStr), parseInt(mStr) - 1, 1);
+             if (fromDateObj && d < fromDateObj) return false;
+             if (toDateObj && d > toDateObj) return false;
+             return true;
+         });
+         const hasData = s.vacation > 0 || s.cannot > 0 || s.pref > 0 || hasNotes;
+         
+         const tr = document.createElement('tr');
+         if (hasData) {
+           tr.style.cursor = 'pointer';
+           tr.onclick = function() { showDoctorCalendar(email); };
+           tr.innerHTML = `
+             <td>${teamOrder.indexOf(email) + 1}</td>
+             <td style="color: #3498db; text-decoration: underline;">${escapeHtml(s.name)}</td>
+             <td>${s.role}</td>
+             <td>${s.vacation}</td>
+             <td>${s.cannot}</td>
+             <td>${s.pref}</td>
+           `;
+         } else {
+           tr.innerHTML = `
+             <td>${teamOrder.indexOf(email) + 1}</td>
+             <td>${escapeHtml(s.name)}</td>
+             <td>${s.role}</td>
+             <td>${s.vacation}</td>
+             <td>${s.cannot}</td>
+             <td>${s.pref}</td>
+           `;
+         }
+         tbody.appendChild(tr);
+      });
+    }
+
+
+    let fpMgrUnified = null;
+    function renderUnifiedCalendar() {
+      let prevSelectedDate = null;
+      let prevMonth = null;
+      let prevYear = null;
+      
+      if (typeof fpMgrUnified !== 'undefined' && fpMgrUnified && fpMgrUnified.selectedDates && fpMgrUnified.selectedDates.length > 0) {
+        prevSelectedDate = fpMgrUnified.selectedDates[0];
+      }
+
+      if (typeof fpMgrUnified !== 'undefined' && fpMgrUnified) {
+        prevMonth = fpMgrUnified.currentMonth;
+        prevYear = fpMgrUnified.currentYear;
+        fpMgrUnified.destroy();
+      }
+
+      const showCannot   = document.getElementById('calFilterCannot')  ? document.getElementById('calFilterCannot').checked  : true;
+      const showVacation  = document.getElementById('calFilterVacation') ? document.getElementById('calFilterVacation').checked : true;
+      const showPref      = document.getElementById('calFilterPref')     ? document.getElementById('calFilterPref').checked     : true;
+      const showForced    = document.getElementById('calFilterForced')   ? document.getElementById('calFilterForced').checked   : true;
+
+      const updateDayDetails = (selectedDates, dateStr, instance) => {
+           if (selectedDates.length > 0) {
+              const clickedDate = instance.formatDate(selectedDates[0], "d/m/Y");
+              const detailsDiv = document.getElementById("unifiedCalendarDetails");
+              if (existingVacations[clickedDate]) {
+                  const filteredVacs = existingVacations[clickedDate].filter(v => {
+                    if (v.status === 'Revoked') return false;
+                    if (!showCannot   && v.type === 'לא יכול תורנות') return false;
+                    if (!showVacation && v.type === 'חופש' && v.status !== 'ForcedLeave') return false;
+                    if (!showForced   && v.status === 'ForcedLeave') return false;
+                    if (!showPref     && v.type === 'מועדף') return false;
+                    
+                    if (managerFilter === 'הכל') return true;
+                    let docRole = null;
+                    for (const email in doctorDatabase) {
+                       if (doctorDatabase[email].name === v.name) { docRole = doctorDatabase[email].role; break; }
+                    }
+                    return docRole === managerFilter;
+                  });
+                  if (filteredVacs.length > 0) {
+                      let titleText = "תאריך: " + clickedDate;
+                      if (typeof systemHolidays !== 'undefined' && systemHolidays[clickedDate]) {
+                        titleText += " - חג: " + systemHolidays[clickedDate];
+                      }
+                      let htmlContent = `<div style="font-weight:bold; margin-bottom: 8px;">${titleText}</div>`;
+                      
+                      let cannotHtml = '';
+                      let forcedHtml = '';
+                      let vacationHtml = '';
+                      let prefHtml = '';
+                      
+                      let hasCannot = false, hasForced = false, hasVacation = false, hasPref = false;
+                      
+                      filteredVacs.forEach(v => {
+                         let workerEmail = '';
+                         for (const email in doctorDatabase) { if (doctorDatabase[email].name === v.name) { workerEmail = email; break; } }
+                         
+                         const nameLinkNoStatus = `<span style="cursor: pointer; text-decoration: underline;" onclick="showDoctorCalendar('${workerEmail}', '${clickedDate}')">${v.name}</span>`;
+                         
+                         if (v.type === 'לא יכול תורנות') {
+                            if (!hasCannot) { cannotHtml = '<div style="flex: 1;"><strong>חסימת תורנויות</strong><br>'; hasCannot = true; }
+                            cannotHtml += `<div style="color: #e74c3c; margin-top: 5px;">${nameLinkNoStatus}</div>`;
+                         } else if (v.type === 'חופש' && v.status === 'ForcedLeave') {
+                            if (!hasForced) { forcedHtml = '<div style="flex: 1;"><strong style="color:#8e44ad;">חופשה מאולצת 🛡️</strong><br>'; hasForced = true; }
+                            forcedHtml += `<div style="color: #8e44ad; margin-top: 5px;">${nameLinkNoStatus}</div>`;
+                         } else if (v.type === 'חופש') {
+                            if (!hasVacation) { vacationHtml = '<div style="flex: 1;"><strong>בקשות לחופש</strong><br>'; hasVacation = true; }
+                            vacationHtml += `<div style="color: #3498db; margin-top: 5px;">${nameLinkNoStatus}</div>`;
+                         } else if (v.type === 'מועדף') {
+                            if (!hasPref) { prefHtml = '<div style="flex: 1;"><strong>העדפה לתורנויות</strong><br>'; hasPref = true; }
+                            prefHtml += `<div style="color: #2ecc71; margin-top: 5px;">${nameLinkNoStatus}</div>`;
+                         }
+                      });
+                      if (hasCannot) cannotHtml += '</div>';
+                      if (hasForced) forcedHtml += '</div>';
+                      if (hasVacation) vacationHtml += '</div>';
+                      if (hasPref) prefHtml += '</div>';
+                      
+                      htmlContent += `<div style="display: flex; justify-content: space-between; text-align: right; gap: 10px; flex-wrap: wrap;">${cannotHtml}${forcedHtml}${vacationHtml}${prefHtml}</div>`;
+                      
+                      detailsDiv.innerHTML = htmlContent;
+                      detailsDiv.style.display = "block";
+                  } else {
+                      detailsDiv.innerHTML = `<div style="color: #7f8c8d;">אין בקשות לתאריך ${clickedDate} בהתאם לסינון</div>`;
+                      detailsDiv.style.display = "block";
+                  }
+              } else {
+                  detailsDiv.innerHTML = `<div style="color: #7f8c8d;">אין בקשות לתאריך ${clickedDate}</div>`;
+                  detailsDiv.style.display = "block";
+              }
+           }
+      };
+
+      let fpOptions = {
+        locale: "he",
+        inline: true,
+        mode: "single",
+        onDayCreate: function(dObj, dStr, fp, dayElem) {
+          const dateStr = fp.formatDate(dayElem.dateObj, "d/m/Y");
+
+          if (systemHolidays[dateStr]) {
+            const hBadge = document.createElement('div');
+            hBadge.innerText = systemHolidays[dateStr];
+            hBadge.style.position = 'absolute';
+            hBadge.style.bottom = '1px';
+            hBadge.style.zIndex = '5';
+            hBadge.style.left = '50%';
+            hBadge.style.transform = 'translateX(-50%)';
+            hBadge.style.fontSize = '7.5px';
+            hBadge.style.color = '#8e44ad';
+            hBadge.style.fontWeight = 'bold';
+            hBadge.style.whiteSpace = 'nowrap';
+          hBadge.style.overflow = 'hidden';
+          hBadge.style.textOverflow = 'ellipsis';
+          hBadge.style.maxWidth = '100%';
+          hBadge.style.padding = '0 2px';
+            hBadge.style.pointerEvents = 'none';
+            dayElem.appendChild(hBadge);
+          }
+
+          if (existingVacations[dateStr]) {
+            const filteredVacs = existingVacations[dateStr].filter(v => {
+              if (v.status === 'Revoked') return false;
+              if (!showCannot   && v.type === 'לא יכול תורנות') return false;
+              if (!showVacation && v.type === 'חופש' && v.status !== 'ForcedLeave') return false;
+              if (!showForced   && v.status === 'ForcedLeave') return false;
+              if (!showPref     && v.type === 'מועדף') return false;
+              
+              if (managerFilter === 'הכל') return true;
+              let docRole = null;
+              for (const email in doctorDatabase) {
+                 if (doctorDatabase[email].name === v.name) { docRole = doctorDatabase[email].role; break; }
+              }
+              return docRole === managerFilter;
+            });
+
+            if (filteredVacs.length > 0) {
+              const dotsContainer = document.createElement('div');
+              dotsContainer.style.position = 'absolute';
+              dotsContainer.style.bottom = '2px';
+              dotsContainer.style.left = '0';
+              dotsContainer.style.width = '100%';
+              dotsContainer.style.display = 'flex';
+              dotsContainer.style.justifyContent = 'center';
+              dotsContainer.style.gap = '2px';
+              
+              let cannotCount = 0;
+              let vacationCount = 0;
+              let prefCount = 0;
+              let forcedCount = 0;
+              
+              filteredVacs.forEach(v => {
+                 if (v.status === 'ForcedLeave') forcedCount++;
+                 else if (v.type === 'לא יכול תורנות') cannotCount++;
+                 else if (v.type === 'חופש') vacationCount++;
+                 else if (v.type === 'מועדף') prefCount++;
+              });
+              
+              const createBadge = (count, type) => {
+                const badge = document.createElement('div');
+                badge.innerText = count >= 5 ? '5+' : count;
+                
+                let bgColor, textColor = 'white';
+                if (type === 'vacation') {
+                  if (count === 1) { bgColor = '#85C1E9'; textColor = '#154360'; }
+                  else if (count === 2) { bgColor = '#5DADE2'; textColor = '#154360'; }
+                  else if (count === 3) { bgColor = '#3498DB'; }
+                  else if (count === 4) { bgColor = '#2874A6'; }
+                  else { bgColor = '#1B4F72'; }
+                } else if (type === 'forced') {
+                  if (count === 1) { bgColor = '#D7BDE2'; textColor = '#4A235A'; }
+                  else if (count === 2) { bgColor = '#C39BD3'; textColor = '#4A235A'; }
+                  else if (count === 3) { bgColor = '#AF7AC5'; }
+                  else if (count === 4) { bgColor = '#9B59B6'; }
+                  else { bgColor = '#8E44AD'; }
+                } else if (type === 'cannot') {
+                  if (count === 1) { bgColor = '#F5B7B1'; textColor = '#641E16'; }
+                  else if (count === 2) { bgColor = '#F1948A'; textColor = '#641E16'; }
+                  else if (count === 3) { bgColor = '#E74C3C'; }
+                  else if (count === 4) { bgColor = '#B03A2E'; }
+                  else { bgColor = '#7B241C'; }
+                } else if (type === 'pref') {
+                  if (count === 1) { bgColor = '#A9DFBF'; textColor = '#145A32'; }
+                  else if (count === 2) { bgColor = '#7DCEA0'; textColor = '#145A32'; }
+                  else if (count === 3) { bgColor = '#2ECC71'; }
+                  else if (count === 4) { bgColor = '#239B56'; }
+                  else { bgColor = '#186A3B'; }
+                }
+                
+                badge.style.backgroundColor = bgColor;
+                badge.style.color = textColor;
+                
+                let fSize = 10;
+                let padding = 4;
+                if (count >= 3) {
+                  fSize = 12;
+                  padding = 5;
+                  badge.style.boxShadow = '0px 0px 5px ' + bgColor;
+                }
+                
+                badge.style.fontSize = fSize + 'px';
+                badge.style.fontWeight = 'bold';
+                badge.style.padding = '0 ' + padding + 'px';
+                badge.style.borderRadius = '4px';
+                badge.style.lineHeight = (fSize + 3) + 'px';
+                
+                return badge;
+              };
+
+              if (cannotCount > 0) dotsContainer.appendChild(createBadge(cannotCount, 'cannot'));
+              if (forcedCount > 0) dotsContainer.appendChild(createBadge(forcedCount, 'forced'));
+              if (vacationCount > 0) dotsContainer.appendChild(createBadge(vacationCount, 'vacation'));
+              if (prefCount > 0) dotsContainer.appendChild(createBadge(prefCount, 'pref'));
+              
+              dayElem.appendChild(dotsContainer);
+            }
+          }
+        },
+        onChange: updateDayDetails
+      };
+
+      fpMgrUnified = flatpickr("#mgrUnifiedCalendar", fpOptions);
+      if (prevSelectedDate) {
+        fpMgrUnified.setDate(prevSelectedDate, false);
+        if (prevMonth !== null && prevYear !== null) {
+          fpMgrUnified.jumpToDate(new Date(prevYear, prevMonth, 1));
+        }
+        const dateStr = fpMgrUnified.formatDate(prevSelectedDate, "d/m/Y");
+        updateDayDetails([prevSelectedDate], dateStr, fpMgrUnified);
+      } else if (prevMonth !== null && prevYear !== null) {
+        fpMgrUnified.jumpToDate(new Date(prevYear, prevMonth, 1));
+      }
+    }
+
+    let fpMiniCalendar = null;
+
+    function showDoctorCalendar(email, targetDateString) {
+      const name = doctorDatabase[email] ? doctorDatabase[email].name : email;
+      document.getElementById('modalDoctorName').innerText = "בקשות עבור " + name;
+      document.getElementById('doctorCalendarModal').style.display = 'flex';
+      
+      function updateNotesDisplay(m, y) {
+          const notesContainer = document.getElementById('doctorNotesContainer');
+          notesContainer.style.display = 'none';
+          notesContainer.innerHTML = '';
+          const workerNotes = existingNotes[name];
+          if (!workerNotes) return;
+          
+          const monthStr = String(m + 1).padStart(2, '0') + '-' + y;
+          if (workerNotes[monthStr] && workerNotes[monthStr].length > 0) {
+              let notesHtml = '<div style="margin-bottom: 5px; color: #2c3e50;"><strong>התייחסות חופשית / הערות:</strong></div><ul style="padding-right: 20px; margin: 0;">';
+              for (const note of workerNotes[monthStr]) {
+                 notesHtml += `<li style="margin-bottom: 4px;"><b>${monthStr}:</b> ${escapeHtml(note)}</li>`;
+              }
+              notesHtml += '</ul>';
+              notesContainer.innerHTML = notesHtml;
+              notesContainer.style.display = 'block';
+          }
+      }
+      
+      const monthFilterFrom = document.getElementById('managerMonthFilterFrom') ? document.getElementById('managerMonthFilterFrom').value : 'הכל';
+      const monthFilterTo = document.getElementById('managerMonthFilterTo') ? document.getElementById('managerMonthFilterTo').value : 'הכל';
+      
+      const parseMonth = (str) => {
+         if (str === 'הכל' || !str) return null;
+         const [m, y] = str.split('-');
+         return new Date(y, m - 1);
+      };
+      const fromDateObj = parseMonth(monthFilterFrom);
+      let toDateObj = parseMonth(monthFilterTo);
+      if (toDateObj) toDateObj = new Date(toDateObj.getFullYear(), toDateObj.getMonth() + 1, 0);
+      
+      if (fpMiniCalendar) {
+        fpMiniCalendar.destroy();
+      }
+
+      fpMiniCalendar = flatpickr("#miniDoctorCalendar", {
+        locale: "he",
+        inline: true,
+        mode: "multiple",
+        minDate: fromDateObj || null,
+        maxDate: toDateObj || null,
+        onMonthChange: function(selectedDates, dateStr, instance) {
+          updateNotesDisplay(instance.currentMonth, instance.currentYear);
+        },
+        onYearChange: function(selectedDates, dateStr, instance) {
+          updateNotesDisplay(instance.currentMonth, instance.currentYear);
+        },
+        onDayCreate: function(dObj, dStr, fp, dayElem) {
+          const dateStr = fp.formatDate(dayElem.dateObj, "d/m/Y");
+
+          if (systemHolidays[dateStr]) {
+            const hBadge = document.createElement('div');
+            hBadge.innerText = systemHolidays[dateStr];
+            hBadge.style.position = 'absolute';
+            hBadge.style.bottom = '1px';
+            hBadge.style.zIndex = '5';
+            hBadge.style.left = '50%';
+            hBadge.style.transform = 'translateX(-50%)';
+            hBadge.style.fontSize = '7.5px';
+            hBadge.style.color = '#8e44ad';
+            hBadge.style.fontWeight = 'bold';
+            hBadge.style.whiteSpace = 'nowrap';
+          hBadge.style.overflow = 'hidden';
+          hBadge.style.textOverflow = 'ellipsis';
+          hBadge.style.maxWidth = '100%';
+          hBadge.style.padding = '0 2px';
+            hBadge.style.pointerEvents = 'none';
+            dayElem.appendChild(hBadge);
+          }
+
+          if (existingVacations[dateStr]) {
+            let myVacs = existingVacations[dateStr].filter(v => v.name === name);
+            
+            const showCannot = document.getElementById('modFilterCannot').checked;
+            const showVac = document.getElementById('modFilterVacation').checked;
+            const showPref = document.getElementById('modFilterPref').checked;
+            
+            myVacs = myVacs.filter(v => {
+              if (v.type === 'לא יכול תורנות' && !showCannot) return false;
+              if (v.type === 'חופש' && !showVac) return false;
+              if (v.type === 'מועדף' && !showPref) return false;
+              return true;
+            });
+            
+            if (myVacs.length > 0) {
+              // Forced-leave days: purple background + border (keep blue dot so חופש is still visible)
+              const hasForcedLeave = myVacs.some(v => v.type === 'חופש' && v.status === 'ForcedLeave');
+              if (hasForcedLeave) {
+                dayElem.style.backgroundColor = 'rgba(142, 68, 173, 0.20)';
+                dayElem.style.boxShadow = 'inset 0 0 0 2px rgba(142, 68, 173, 0.55)';
+                dayElem.style.borderRadius = '4px';
+              } else {
+                dayElem.style.borderBottom = "2px solid #ccc";
+              }
+              const dotsContainer = document.createElement('div');
+              dotsContainer.style.position = 'absolute';
+              dotsContainer.style.bottom = '2px';
+              dotsContainer.style.left = '0';
+              dotsContainer.style.width = '100%';
+              dotsContainer.style.display = 'flex';
+              dotsContainer.style.justifyContent = 'center';
+              dotsContainer.style.gap = '2px';
+              
+              myVacs.forEach(v => {
+                 const dot = document.createElement('div');
+                 dot.style.width = '5px';
+                 dot.style.height = '5px';
+                 dot.style.borderRadius = '50%';
+                 if (v.type === 'לא יכול תורנות') dot.style.backgroundColor = '#e74c3c';
+                 else if (v.type === 'חופש') dot.style.backgroundColor = '#3498db';  // blue dot kept even for ForcedLeave
+                 else if (v.type === 'מועדף') dot.style.backgroundColor = '#2ecc71';
+                 else dot.style.backgroundColor = '#000';
+                 dotsContainer.appendChild(dot);
+              });
+              dayElem.appendChild(dotsContainer);
+            }
+          }
+        }
+      });
+      
+      if (targetDateString) {
+        const parts = targetDateString.split('/');
+        fpMiniCalendar.jumpToDate(new Date(parseInt(parts[2], 10), parseInt(parts[1], 10) - 1, 1));
+      } else if (typeof monthFilterFrom !== 'undefined' && monthFilterFrom !== 'הכל') {
+        const [m, y] = monthFilterFrom.split('-');
+        fpMiniCalendar.jumpToDate(new Date(parseInt(y, 10), parseInt(m, 10) - 1, 1));
+      } else {
+        let jumpYear = new Date().getFullYear();
+        let jumpMonth = new Date().getMonth();
+        const dates = Object.keys(existingVacations);
+        if (dates.length > 0) {
+          const ms = dates.map(d => {
+            const p = d.split('/');
+            return new Date(p[2], p[1]-1, p[0]).getTime();
+          });
+          const earliest = new Date(Math.min(...ms));
+          jumpYear = earliest.getFullYear();
+          jumpMonth = earliest.getMonth();
+        }
+        fpMiniCalendar.jumpToDate(new Date(jumpYear, jumpMonth, 1));
+      }
+      
+      updateNotesDisplay(fpMiniCalendar.currentMonth, fpMiniCalendar.currentYear);
+    }
+
+    function closeDoctorCalendar() {
+      document.getElementById('doctorCalendarModal').style.display = 'none';
+    }
+
+    // Confirm before removing an existing (already-saved) team member
+    function confirmRemoveWorker(btn, name) {
+      showCustomConfirm(
+        `האם להסיר את ${name} מרשימת הצוות?\n\nשים לב: השינוי ייכנס לתוקף רק לאחר לחיצה על "שמור שינויים".`,
+        () => btn.parentElement.parentElement.parentElement.remove(),
+        null, '⚠️'
+      );
+    }
+
+    function renderTeamManagementTable() {
+      const tbody = document.querySelector('#teamManagementTable tbody');
+      tbody.innerHTML = '';
+      
+      for (const primary of teamOrder) {
+        const primaryDoc = doctorDatabase[primary];
+        if (!primaryDoc) continue;
+        
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td><input type="text" class="team-input edit-email" dir="ltr" style="text-align: left;" value="${primary}" data-original="${primary}"></td>
+          <td><input type="text" class="team-input edit-name" value="${escapeHtml(primaryDoc.name)}"></td>
+          <td>
+            <input type="text" class="team-input edit-role" value="${escapeHtml(primaryDoc.role)}" list="roleList" placeholder="תפקיד">
+          </td>
+          <td>
+            <div style="display:flex; gap:8px;">
+              <input type="text" class="team-input edit-email2" dir="ltr" style="text-align: left;" value="${primaryDoc.email2 || ''}" placeholder="אימייל נוסף">
+              <button type="button" style="background:#e74c3c; color:white; border:none; padding:8px 12px; border-radius:6px; cursor:pointer; font-weight:bold;" onclick="confirmRemoveWorker(this, '${escapeHtml(primaryDoc.name)}')">הסר</button>
+            </div>
+          </td>
+        `;
+        tbody.appendChild(tr);
+      }
+    }
+
+    function addTeamRow() {
+      const tbody = document.querySelector('#teamManagementTable tbody');
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td><input type="text" class="team-input edit-email" dir="ltr" style="text-align: left;" placeholder="אימייל ראשי"></td>
+        <td><input type="text" class="team-input edit-name" placeholder="שם מלא"></td>
+        <td>
+          <select class="team-select edit-role">
+            <option value="בכיר">בכיר</option>
+            <option value="מתמחה">מתמחה</option>
+            <option value="אחר">אחר</option>
+          </select>
+        </td>
+        <td>
+          <div style="display:flex; gap:8px;">
+            <input type="text" class="team-input edit-email2" dir="ltr" style="text-align: left;" placeholder="אימייל נוסף">
+            <button type="button" style="background:#e74c3c; color:white; border:none; padding:8px 12px; border-radius:6px; cursor:pointer; font-weight:bold;" onclick="this.parentElement.parentElement.parentElement.remove()">הסר</button>
+          </div>
+        </td>
+      `;
+      tbody.appendChild(tr);
+    }
+
+    function saveTeamChanges() {
+      const rows = document.querySelectorAll('#teamManagementTable tbody tr');
+      const newDb = {};
+      const newRows = [];
+      let valid = true;
+      let newTeamOrder = [];
+      
+      rows.forEach(tr => {
+        const email = tr.querySelector('.edit-email').value.trim().toLowerCase();
+        const name = tr.querySelector('.edit-name').value.trim();
+        const role = tr.querySelector('.edit-role').value;
+        const email2 = tr.querySelector('.edit-email2').value.trim().toLowerCase();
+        
+        if (email && name) {
+          newRows.push({ email1: email, name: name, role: role, email2: email2 });
+          newTeamOrder.push(email);
+          
+          let docData = { name: name, role: role, primaryEmail: email };
+          if (email2) docData.email2 = email2;
+          newDb[email] = docData;
+          if (email2) newDb[email2] = docData;
+        } else if (email || name) {
+          valid = false;
+        }
+      });
+
+      if (!valid) {
+        showCustomAlert("יש למלא אימייל ושם לכל השורות שאינן ריקות. אנא תקן ונסה שנית.", "⚠️");
+        return;
+      }
+
+      const btn = document.getElementById('saveTeamBtn');
+      btn.disabled = true;
+      btn.innerText = 'שומר...';
+
+      google.script.run
+        .withSuccessHandler(function() {
+          btn.disabled = false;
+          btn.innerText = '💾 שמור שינויים';
+          showToast("רשימת הצוות עודכנה בהצלחא! ✅");
+          
+          for(let key in doctorDatabase) delete doctorDatabase[key];
+          for(let key in newDb) doctorDatabase[key] = newDb[key];
+          teamOrder = newTeamOrder;
+          
+          renderManagerStats();
+        })
+        .withFailureHandler(function(err) {
+          btn.disabled = false;
+          btn.innerText = '💾 שמור שינויים';
+          showCustomAlert("שגיאה בעדכון רשימת הצוות: " + err, "❌");
+        })
+        .saveTeamDatabase(newRows);
+    }
+    let sortDirection = {};
+    function sortStatsTable(n) {
+      const table = document.getElementById("managerStatsTable");
+      let rows, switching, i, x, y, shouldSwitch, dir, switchcount = 0;
+      switching = true;
+      dir = sortDirection[n] === "asc" ? "desc" : "asc";
+      sortDirection[n] = dir;
+      
+      while (switching) {
+        switching = false;
+        rows = table.rows;
+        for (i = 1; i < (rows.length - 1); i++) {
+          shouldSwitch = false;
+          x = rows[i].getElementsByTagName("TD")[n];
+          y = rows[i + 1].getElementsByTagName("TD")[n];
+          let cmpX = x.innerHTML.toLowerCase();
+          let cmpY = y.innerHTML.toLowerCase();
+          
+          let intX = parseInt(cmpX, 10);
+          let intY = parseInt(cmpY, 10);
+          if (!isNaN(intX) && !isNaN(intY)) {
+             cmpX = intX;
+             cmpY = intY;
+          }
+          
+          if (dir == "asc") {
+            if (cmpX > cmpY) { shouldSwitch = true; break; }
+          } else {
+            if (cmpX < cmpY) { shouldSwitch = true; break; }
+          }
+        }
+        if (shouldSwitch) {
+          rows[i].parentNode.insertBefore(rows[i + 1], rows[i]);
+          switching = true;
+          switchcount++;
+        }
+      }
+    }
+  
+    let fpForcedLeave = null;
+    function openForcedLeaveModal() {
+      const select = document.getElementById('flWorkerSelect');
+      select.innerHTML = '<option value="">בחר איש צוות...</option>';
+      teamOrder.forEach(email => {
+        const doc = doctorDatabase[email];
+        if (doc) {
+          const opt = document.createElement('option');
+          opt.value = email;
+          opt.innerText = doc.name + ' (' + doc.role + ')';
+          select.appendChild(opt);
+        }
+      });
+      
+      document.getElementById('flReason').value = '';
+      
+      if (!fpForcedLeave) {
+        fpForcedLeave = flatpickr("#flDatePicker", {
+          mode: "multiple",
+          dateFormat: "d/m/Y",
+          locale: "he",
+          inline: true,
+          onChange: function() { updateApproveBtn(); updateRevokeBtn(); },
+          onDayCreate: function(selectedDates, dateStr, instance, dayElem) {
+            const workerEmail = document.getElementById('flWorkerSelect') ? document.getElementById('flWorkerSelect').value : null;
+            const dStr2 = instance.formatDate(dayElem.dateObj, "d/m/Y");
+            
+            if (typeof systemHolidays !== 'undefined' && systemHolidays[dStr2]) {
+              const hBadge = document.createElement('div');
+              hBadge.innerText = systemHolidays[dStr2];
+              hBadge.style.position = 'absolute';
+              hBadge.style.bottom = '1px';
+              hBadge.style.left = '50%';
+              hBadge.style.transform = 'translateX(-50%)';
+              hBadge.style.fontSize = '7.5px';
+              hBadge.style.color = '#8e44ad';
+              hBadge.style.fontWeight = 'bold';
+              hBadge.style.whiteSpace = 'nowrap';
+              hBadge.style.overflow = 'hidden';
+              hBadge.style.textOverflow = 'ellipsis';
+              hBadge.style.maxWidth = '100%';
+              hBadge.style.padding = '0 2px';
+              hBadge.style.pointerEvents = 'none';
+              hBadge.style.zIndex = '5';
+              dayElem.appendChild(hBadge);
+            }
+
+            if (workerEmail && typeof existingVacations !== 'undefined' && existingVacations[dStr2]) {
+                 let reqs = existingVacations[dStr2].filter(r => r.email === workerEmail && r.status !== 'Revoked' && r.type !== 'מועדף');
+                 if (reqs.length > 0) {
+                     const dotsContainer = document.createElement('div');
+                     dotsContainer.style.position = 'absolute';
+                     dotsContainer.style.bottom = '2px';
+                     dotsContainer.style.left = '0';
+                     dotsContainer.style.width = '100%';
+                     dotsContainer.style.display = 'flex';
+                     dotsContainer.style.justifyContent = 'center';
+                     dotsContainer.style.gap = '2px';
+                     
+                     let isForced = false;
+                     reqs.forEach(req => {
+                         const dot = document.createElement('div');
+                         dot.style.width = '5px';
+                         dot.style.height = '5px';
+                         dot.style.borderRadius = '50%';
+                         if (req.type === 'לא יכול תורנות') dot.style.backgroundColor = '#e74c3c';
+                         else if (req.type === 'חופש') dot.style.backgroundColor = '#3498db';
+                         dotsContainer.appendChild(dot);
+                         if (req.status === 'ForcedLeave') isForced = true;
+                     });
+                     dayElem.appendChild(dotsContainer);
+                     if (isForced) {
+                         dayElem.style.border = '2px solid #8e44ad';
+                     }
+                 }
+            }
+          }
+        });
+      }
+      fpForcedLeave.clear();
+      const _approveBtn = document.getElementById('flBtnApprove');
+      if (_approveBtn) _approveBtn.style.display = 'none';
+      const _revokeBtn = document.getElementById('flBtnRevoke');
+      if (_revokeBtn) _revokeBtn.style.display = 'none';
+      
+      document.getElementById('customModalOverlay').style.display = 'flex';
+      document.getElementById('confirmModal').style.display = 'none';
+      document.getElementById('promptModal').style.display = 'none';
+      document.getElementById('forcedLeaveModal').style.display = 'block';
+    }
+    
+    function closeForcedLeaveModal() {
+      document.getElementById('customModalOverlay').style.display = 'none';
+      document.getElementById('forcedLeaveModal').style.display = 'none';
+    }
+
+    function showCustomAlert(msg, icon) {
+      const modal = document.getElementById('genericAlertModal');
+      if (!modal) { alert(msg); return; }
+      document.getElementById('genericAlertIcon').innerText = icon || 'ℹ️';
+      document.getElementById('genericAlertText').innerText = msg;
+      modal.style.display = 'flex';
+      document.getElementById('genericAlertBtn').onclick = () => { modal.style.display = 'none'; };
+    }
+
+    function showCustomConfirm(msg, onYes, onNo, icon) {
+      const modal = document.getElementById('genericConfirmModal');
+      if (!modal) { if (confirm(msg)) { if(onYes) onYes(); } else { if(onNo) onNo(); } return; }
+      document.getElementById('genericConfirmIcon').innerText = icon || '⚠️';
+      document.getElementById('genericConfirmText').innerText = msg;
+      modal.style.display = 'flex';
+      document.getElementById('genericConfirmBtnYes').onclick = () => { modal.style.display = 'none'; if(onYes) onYes(); };
+      document.getElementById('genericConfirmBtnNo').onclick = () => { modal.style.display = 'none'; if(onNo) onNo(); };
+    }
+
+    function updateApproveBtn() {
+      const btn = document.getElementById('flBtnApprove');
+      if (!btn) return;
+      const email = document.getElementById('flWorkerSelect') ? document.getElementById('flWorkerSelect').value : '';
+      if (!email || !fpForcedLeave || fpForcedLeave.selectedDates.length === 0) { btn.style.display = 'none'; return; }
+      const workerName = doctorDatabase[email] ? doctorDatabase[email].name : '';
+      const hasSomeRevoked = fpForcedLeave.selectedDates.some(d => {
+        const dateStr = fpForcedLeave.formatDate(d, 'd/m/Y');
+        return existingVacations[dateStr] && existingVacations[dateStr].some(v => v.name === workerName && v.status === 'Revoked');
+      });
+      btn.style.display = hasSomeRevoked ? 'inline-block' : 'none';
+    }
+
+    // Show בטל only if selected dates contain an active חופש request for this worker
+    function updateRevokeBtn() {
+      const btn = document.getElementById('flBtnRevoke');
+      if (!btn) return;
+      const email = document.getElementById('flWorkerSelect') ? document.getElementById('flWorkerSelect').value : '';
+      if (!email || !fpForcedLeave || fpForcedLeave.selectedDates.length === 0) { btn.style.display = 'none'; return; }
+      const workerName = doctorDatabase[email] ? doctorDatabase[email].name : '';
+      const hasActiveVacation = fpForcedLeave.selectedDates.some(d => {
+        const dateStr = fpForcedLeave.formatDate(d, 'd/m/Y');
+        return existingVacations[dateStr] && existingVacations[dateStr].some(v =>
+          v.name === workerName && v.type === 'חופש' && v.status !== 'Revoked'
+        );
+      });
+      btn.style.display = hasActiveVacation ? 'inline-block' : 'none';
+    }
+
+    function saveBulkManage(action) {
+      const email = document.getElementById('flWorkerSelect').value;
+      const dates = [...fpForcedLeave.selectedDates]
+        .sort((a, b) => a - b)
+        .map(d => fpForcedLeave.formatDate(d, "d/m/Y"));
+      const reason = document.getElementById('flReason').value.trim();
+
+      if (!email || dates.length === 0) {
+        showCustomAlert("נא לבחור עובד ותאריכים.", "⚠️");
+        return;
+      }
+
+      const workerName = doctorDatabase[email] ? doctorDatabase[email].name : email;
+      const datesText = dates.join(', ');
+      let confirmMsg, confirmIcon;
+
+      if (action === 'ForcedLeave') {
+        confirmMsg = `האם להוסיף חופשה מאולצת ל-${workerName}\n\nתאריכים: ${datesText}`;
+        confirmIcon = '🛡️';
+      } else if (action === 'Revoked') {
+        confirmMsg = `האם לבטל את בקשות החופש של ${workerName}?\n\nתאריכים: ${datesText}`;
+        confirmIcon = '⚠️';
+      } else {
+        confirmMsg = `האם לאשר בקשות עבור ${workerName}?\n\nתאריכים: ${datesText}`;
+        confirmIcon = '✅';
+      }
+
+      // Warn inline about empty reason (don't show a separate popup)
+      if (!reason && (action === 'Revoked' || action === 'ForcedLeave')) {
+        confirmMsg += '\n\n⚠️ לא הוזן הסבר — ישלח מייל ריק ללא הסבר לעובד.';
+      }
+
+      showCustomConfirm(confirmMsg, () => _executeBulkManage(email, dates, action, reason), null, confirmIcon);
+    }
+
+    function _executeBulkManage(email, dates, action, reason) {
+      closeForcedLeaveModal();
+      const loadingEl = document.getElementById('loadingOverlay');
+      const actionLabel = action === 'ForcedLeave' ? 'מעדכן חופשה מאולצת...' :
+                          action === 'Revoked' ? 'מבטל בקשות...' : 'מאשר בקשות...';
+      if (loadingEl) {
+        loadingEl.innerHTML = `<div style="text-align:center; direction:rtl; padding:20px;">`+
+          `<div style="font-size:52px; margin-bottom:14px;">⏳</div>`+
+          `<div style="font-size:18px; font-weight:700; color:#2c3e50; margin-bottom:8px;">${actionLabel}</div>`+
+          `<div style="font-size:13px; color:#7f8c8d;">אנא המתן, הפעולה עשויה לקחת כמה שניות</div></div>`;
+        loadingEl.style.display = 'flex';
+      }
+
+      google.script.run
+        .withSuccessHandler((res) => {
+          if (loadingEl) { loadingEl.style.display = 'none'; loadingEl.innerHTML = 'טוען נתונים...'; }
+          if (res.success) {
+            const workerName = doctorDatabase[email] ? doctorDatabase[email].name : email;
+            const workerRole  = doctorDatabase[email] ? doctorDatabase[email].role  : '';
+
+            // Issue 7: only affect חופש entries, NEVER touch cannot-work rows
+            dates.forEach(dateStr => {
+              if (existingVacations[dateStr]) {
+                let foundVacation = false;
+                existingVacations[dateStr].forEach(v => {
+                  if (v.name === workerName && v.type === 'חופש') {
+                    v.status = action;
+                    foundVacation = true;
+                  }
+                });
+                if (!foundVacation && action !== 'Revoked') {
+                  existingVacations[dateStr].push({ name: workerName, role: workerRole, type: 'חופש', email: email, status: action });
+                }
+              } else if (action !== 'Revoked') {
+                existingVacations[dateStr] = [{ name: workerName, role: workerRole, type: 'חופש', email: email, status: action }];
+              }
+            });
+
+            renderManagerStats();
+            renderUnifiedCalendar();
+        loadRosterMonthDisplay();
+
+            // Reopen modal so manager stays in the calendar (Issue 6)
+            openForcedLeaveModal();
+            const sel = document.getElementById('flWorkerSelect');
+            if (sel) sel.value = email;
+            if (fpForcedLeave) fpForcedLeave.redraw();
+            updateApproveBtn();
+            updateRevokeBtn();
+
+            const msg = action === 'ForcedLeave' ? 'חופשה מאולצת נוספה! ✅' :
+                         action === 'Revoked'     ? 'בקשות בוטלו ✅' : 'בקשות אושרו ✅';
+            showToast(msg);
+          } else {
+            showCustomAlert("שגיאה: " + res.message, "❌");
+            // Reopen modal even on error so manager isn't left with nothing
+            openForcedLeaveModal();
+            const sel = document.getElementById('flWorkerSelect');
+            if (sel) sel.value = email;
+          }
+        })
+        .withFailureHandler((err) => {
+          if (loadingEl) { loadingEl.style.display = 'none'; loadingEl.innerHTML = 'טוען נתונים...'; }
+          showCustomAlert("שגיאת תקשורת: " + err, "❌");
+          openForcedLeaveModal();
+          const sel = document.getElementById('flWorkerSelect');
+          if (sel) sel.value = email;
+        })
+        .bulkManageRequests(email, dates, action, reason);
+    }
+
+
+</script>

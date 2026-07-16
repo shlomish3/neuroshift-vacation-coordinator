@@ -1,0 +1,21 @@
+<script>
+function submitBugReport() {
+    const text = document.getElementById('bugReportText').value.trim();
+    if (!text) return;
+    const btn = document.getElementById('btnSubmitBug');
+    btn.disabled = true;
+    btn.innerText = 'שולח...';
+    let email = (typeof lastFetchedEmail !== 'undefined' && lastFetchedEmail) ? lastFetchedEmail : (document.getElementById('doctorEmail') ? document.getElementById('doctorEmail').value : 'unknown');
+    google.script.run.withSuccessHandler(function() {
+        alert("הדיווח נשלח בהצלחה!");
+        document.getElementById('bugReportModal').style.display = 'none';
+        document.getElementById('bugReportText').value = '';
+        btn.disabled = false;
+        btn.innerText = 'שלח דיווח';
+    }).withFailureHandler(function(err) {
+        alert("שגיאה בשליחה: " + err);
+        btn.disabled = false;
+        btn.innerText = 'שלח דיווח';
+    }).sendBugReport(text, email);
+}
+</script>
