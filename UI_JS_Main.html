@@ -186,12 +186,20 @@ function onMonthSelect(month, year, clickedBtn) {
             }
             
             document.getElementById('freeText').value = data.freeText || '';
+            if (typeof fpCannot !== 'undefined' && typeof fpPreferred !== 'undefined') {
+              fpPreferred.set('disable', fpCannot.selectedDates.slice());
+              fpCannot.set('disable', fpPreferred.selectedDates.slice());
+              fpPreferred.redraw();
+              fpCannot.redraw();
+            }
             showToast('הבקשה הקודמת נטענה בהצלחה!');
           } else {
-            document.getElementById('formTitle').innerText = 'תורנויות וחופשים ניורולוגיה';
+            document.getElementById('formTitle').innerText = 'תורנויות וחופשים נוירולוגיה';
             fpCannot.clear();
             fpVacation.clear();
             fpPreferred.clear();
+            if (typeof fpCannot !== 'undefined') fpCannot.set('disable', []);
+            if (typeof fpPreferred !== 'undefined') fpPreferred.set('disable', []);
           }
           
           if (typeof fpCannot !== 'undefined') fpCannot.jumpToDate(firstDay);
@@ -523,6 +531,15 @@ function onMonthSelect(month, year, clickedBtn) {
 
     const fpPreferred = flatpickr("#datesPreferred", preferredConfig);
 
+    function _sortDatesStr(dStr) {
+      if (!dStr) return dStr;
+      return dStr.split(', ').filter(Boolean).sort(function(a, b) {
+        var p1 = a.split('/'); var p2 = b.split('/');
+        if (p1.length !== 3 || p2.length !== 3) return 0;
+        return new Date(p1[2], p1[1] - 1, p1[0]) - new Date(p2[2], p2[1] - 1, p2[0]);
+      }).join(', ');
+    }
+
     function submitForm(e) {
       e.preventDefault();
 
@@ -542,9 +559,9 @@ function onMonthSelect(month, year, clickedBtn) {
 
       const email        = document.getElementById('doctorEmail').value;
       const name         = document.getElementById('doctorName').value;
-      const datesCannot  = document.getElementById('datesCannot').value;
-      const datesVacation= document.getElementById('datesVacation').value;
-      const datesPreferred = document.getElementById('datesPreferred').value;
+      const datesCannot  = _sortDatesStr(document.getElementById('datesCannot').value);
+      const datesVacation= _sortDatesStr(document.getElementById('datesVacation').value);
+      const datesPreferred = _sortDatesStr(document.getElementById('datesPreferred').value);
       const freeText     = document.getElementById('freeText').value;
       const editId       = document.getElementById('editId').value;
 
@@ -588,7 +605,7 @@ function onMonthSelect(month, year, clickedBtn) {
         datesCannot:    datesCannot,
         datesVacation:  datesVacation,
         datesPreferred: datesPreferred,
-        datesImportant: document.getElementById('datesImportant').value,
+        datesImportant: _sortDatesStr(document.getElementById('datesImportant').value),
         freeText:       freeText,
         targetMonth:    selectedMonth,
         targetYear:     selectedYear
@@ -797,7 +814,13 @@ function onMonthSelect(month, year, clickedBtn) {
           if (result && result.success) {
             const badge2 = document.getElementById('rosterMonthBadge');
             if (badge2) badge2.textContent = (HEBREW_MONTHS[result.month - 1] || '') + ' \u2019' + String(result.year).slice(2);
-            showToast('\u05D7\u05D5\u05D3\u05E9 \u05E4\u05E2\u05D9\u05DC \u05E2\u05D5\u05D3\u05DB\u05DF \u2714');
+            if (result.warning) {
+              showCustomAlert(result.warning, '\u26A0\uFE0F');
+            } else {
+              showToast('\u05D7\u05D5\u05D3\u05E9 \u05E4\u05E2\u05D9\u05DC \u05E2\u05D5\u05D3\u05DB\u05DF \u2714');
+            }
+          } else {
+            showCustomAlert('\u05E9\u05D2\u05D9\u05D0\u05D4 \u05D1\u05E2\u05D3\u05DB\u05D5\u05DF \u05D4\u05D7\u05D5\u05D3\u05E9: ' + ((result && result.message) || ''), '\u274C');
           }
         })
         .withFailureHandler(function() { showCustomAlert('\u05E9\u05D2\u05D9\u05D0\u05D4', '\u274C'); })
