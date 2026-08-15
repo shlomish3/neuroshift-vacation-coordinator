@@ -106,6 +106,22 @@ function setRosterMonth(monthKey) {
   return { success: true, key: monthKey };
 }
 
+function ensureLegacyRosterHeaders_(sheet) {
+  const headers = new Array(26).fill('');
+  headers[0] = 'חותמת זמן';
+  headers[1] = 'כתובת אימייל';
+  headers[2] = 'שם';
+  headers[3] = 'לילות בהם אינכם יכולים לעשות תורנות/כוננות';
+  headers[4] = 'בחירת ימי חופש - כולל ימי שישי';
+  headers[5] = 'התייחסות חופשית + תאריכים מועדפים';
+  headers[6] = 'תאריכים מועדפים';
+  headers[7] = 'חודש בקשה';
+  headers[25] = 'EditID';
+  sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+  sheet.getRange('A1:H1').setFontWeight('bold');
+  sheet.getRange('Z1').setFontWeight('bold');
+}
+
 function shiftRosterMonth(delta) {
   const rm = getRosterMonth();
   let m = rm.month + delta;
@@ -114,8 +130,19 @@ function shiftRosterMonth(delta) {
   if (m < 1)  { m += 12; y--; }
   const newKey = m + '-' + y;
   PropertiesService.getScriptProperties().setProperty('ROSTER_MONTH', newKey);
-  repopulateRosterSheet(newKey);
-  return { success: true, key: newKey, month: m, year: y };
+  const rebuild = repopulateRosterSheet(newKey);
+  if (!rebuild || !rebuild.success) {
+    return { success: false, key: newKey, month: m, year: y, message: rebuild ? rebuild.message : 'Rebuild failed' };
+  }
+  return {
+    success: true,
+    key: newKey,
+    month: m,
+    year: y,
+    warning: rebuild.warning || '',
+    importantSourceCount: rebuild.importantSourceCount,
+    importantProjectedCount: rebuild.importantProjectedCount
+  };
 }
 
 function repopulateRosterSheet(monthKey) {
@@ -129,18 +156,19 @@ function repopulateRosterSheet(monthKey) {
     let legacySheet = ss.getSheetByName('\u05EA\u05D2\u05D5\u05D1\u05D5\u05EA \u05DC\u05D8\u05D5\u05E4\u05E1 1');
     if (!legacySheet) {
       legacySheet = ss.insertSheet('\u05EA\u05D2\u05D5\u05D1\u05D5\u05EA \u05DC\u05D8\u05D5\u05E4\u05E1 1');
-      legacySheet.appendRow(['חותמת זמן', 'כתובת אימייל', 'שם', 'לילות בהם אינכם יכולים לעשות תורנות/כוננות', 'בחירת ימי חופש - כולל ימי שישי', 'התייחסות חופשית + תאריכים מועדפים', 'תאריכים מועדפים']);
-      legacySheet.getRange('A1:G1').setFontWeight('bold');
     }
+    ensureLegacyRosterHeaders_(legacySheet);
     // Clear data rows (keep header)
     const lastLeg = legacySheet.getLastRow();
     if (lastLeg > 1) legacySheet.deleteRows(2, lastLeg - 1);
 
     // Read Vacation_Requests_Clean
     const cleanSheet = ss.getSheetByName('Vacation_Requests_Clean');
-    if (!cleanSheet) return;
+    if (!cleanSheet) return { success: false, message: 'Vacation_Requests_Clean not found' };
     const cleanData = cleanSheet.getDataRange().getValues();
-    if (cleanData.length < 2) return;
+    if (cleanData.length < 2) {
+      return { success: true, rowCount: 0, importantSourceCount: 0, importantProjectedCount: 0, warning: '' };
+    }
 
     // Exact type strings matching appendDates() in processForm
     const TYPE_CANNOT   = '\u05DC\u05D0 \u05D9\u05DB\u05D5\u05DC \u05EA\u05D5\u05E8\u05E0\u05D5\u05EA'; // לא יכול תורנות
@@ -149,7 +177,8 @@ function repopulateRosterSheet(monthKey) {
     const TYPE_PREF_IMP = '\u05DE\u05D5\u05E2\u05D3\u05E3 (\u05D7\u05E9\u05D5\u05D1)'; // מועדף (חשוב)
 
     // Group by email: split dates by type to match legacy columns
-    const map = {}; // email -> { name, cannot[], vacation[], preferred[], reason, ts, editId }
+    const map = {}; // email -> { name, cannot[], vacation[], preferred[{date, important}], reason, ts, editId }
+    let importantSourceCount = 0;
     cleanData.slice(1).forEach(function(row) {
       const ts     = row[0];
       const name   = String(row[2]).trim();
@@ -190,10 +219,12 @@ function repopulateRosterSheet(monthKey) {
       } else if (dtType === TYPE_VACATION) {
         map[email].vacation.push(ds);
       } else if (dtType === TYPE_PREF || dtType === TYPE_PREF_IMP) {
-        map[email].preferred.push(ds);
+        const important = dtType === TYPE_PREF_IMP;
+        map[email].preferred.push({ date: ds, important: important });
+        if (important) importantSourceCount++;
       } else {
         // Fallback: unknown types go to preferred (safer than cannot)
-        map[email].preferred.push(ds);
+        map[email].preferred.push({ date: ds, important: false });
       }
     });
 
@@ -204,16 +235,26 @@ function repopulateRosterSheet(monthKey) {
       });
     };
     const rows = [];
+    let importantProjectedCount = 0;
     Object.keys(map).forEach(function(email) {
       const d2  = map[email];
       const row = new Array(26).fill('');
+      const preferredFormatted = d2.preferred
+        .sort(function(a, b) {
+          const pa = a.date.split('/'); const pb = b.date.split('/');
+          return new Date(pa[2], pa[1]-1, pa[0]) - new Date(pb[2], pb[1]-1, pb[0]);
+        })
+        .map(function(entry) {
+          if (entry.important) importantProjectedCount++;
+          return formatLegacyDates(entry.date, entry.important);
+        });
       row[0]  = d2.ts;
       row[1]  = email;
       row[2]  = d2.name;
-      row[3]  = sortDates(d2.cannot).join(', ');    // col D: cannot-work dates
-      row[4]  = sortDates(d2.vacation).join(', ');  // col E: vacation dates
+      row[3]  = formatLegacyDates(sortDates(d2.cannot).join(', '));   // col D: cannot-work dates
+      row[4]  = formatLegacyDates(sortDates(d2.vacation).join(', ')); // col E: vacation dates
       row[5]  = d2.reason;                           // col F: free text
-      row[6]  = sortDates(d2.preferred).join(', '); // col G: preferred dates
+      row[6]  = preferredFormatted.join(', ');       // col G: preferred dates, including important marker
       row[7]  = monthKey;
       row[25] = d2.editId;
       rows.push(row);
@@ -222,8 +263,21 @@ function repopulateRosterSheet(monthKey) {
     if (rows.length > 0) {
       legacySheet.getRange(2, 1, rows.length, 26).setValues(rows);
     }
+    const warning = importantSourceCount === importantProjectedCount
+      ? ''
+      : 'אזהרה: מספר התאריכים החשובים בגיליון הפעיל אינו תואם למסד הבקשות (' +
+        importantProjectedCount + '/' + importantSourceCount + ').';
+    if (warning) Logger.log(warning);
+    return {
+      success: true,
+      rowCount: rows.length,
+      importantSourceCount: importantSourceCount,
+      importantProjectedCount: importantProjectedCount,
+      warning: warning
+    };
   } catch(e) {
     Logger.log('repopulateRosterSheet error: ' + e.message);
+    return { success: false, message: e.message };
   }
 }
 
@@ -387,9 +441,8 @@ function processForm(formData) {
       let legacySheet = spreadsheet.getSheetByName(legacySheetName);
       if (!legacySheet) {
         legacySheet = spreadsheet.insertSheet(legacySheetName);
-        legacySheet.appendRow(['חותמת זמן', 'כתובת אימייל', 'שם', 'לילות בהם אינכם יכולים לעשות תורנות/כוננות', 'בחירת ימי חופש - כולל ימי שישי', 'התייחסות חופשית + תאריכים מועדפים', 'תאריכים מועדפים']);
-        legacySheet.getRange("A1:G1").setFontWeight("bold");
       }
+      ensureLegacyRosterHeaders_(legacySheet);
   
       // Delete previous row for this email + this month (col H = monthKey)
       const legacyVals = legacySheet.getDataRange().getValues();
@@ -433,7 +486,7 @@ function processForm(formData) {
           })()
         : '';
 
-      const subject = (isEditReceipt ? '[\u05E2\u05D3\u05DB\u05D5\u05DF] ' : '') + '\u05D0\u05D9\u05E9\u05D5\u05E8 \u05D1\u05E7\u05E9\u05D4 \u05E0\u05D9\u05D5\u05E8\u05D5\u05DC\u05D5\u05D2\u05D9\u05D4 \u2014 ' + mLabel;
+      const subject = (isEditReceipt ? '[\u05E2\u05D3\u05DB\u05D5\u05DF] ' : '') + '\u05D0\u05D9\u05E9\u05D5\u05E8 \u05D1\u05E7\u05E9\u05D4 \u05E0\u05D5\u05D9\u05E8\u05D5\u05DC\u05D5\u05D2\u05D9\u05D4 \u2014 ' + mLabel;
 
       let wb = "<div dir='rtl' style='font-family:Arial,sans-serif;font-size:14px;color:#222;max-width:600px;'>";
       wb += "<h3 style='color:#1a5276;margin-bottom:4px;'>" + (isEditReceipt ? '\u270F\uFE0F \u05E2\u05D3\u05DB\u05D5\u05DF \u05D1\u05E7\u05E9\u05D4' : '\u2705 \u05D1\u05E7\u05E9\u05D4 \u05D4\u05EA\u05E7\u05D1\u05DC\u05D4 \u05D1\u05D4\u05E6\u05DC\u05D7\u05D4') + "</h3>";
@@ -453,7 +506,7 @@ function processForm(formData) {
       wb += "<p style='margin-top:14px;'>\u05E0\u05D9\u05EA\u05DF \u05DC\u05E2\u05D3\u05DB\u05DF \u05D0\u05D5 \u05DC\u05E9\u05E0\u05D5\u05EA \u05D0\u05EA \u05D4\u05D1\u05E7\u05E9\u05D4 \u05D1\u05DB\u05DC \u05E2\u05EA \u05D3\u05E8\u05DA \u05D0\u05EA\u05E8 \u05D4\u05DE\u05E2\u05E8\u05DB\u05EA:<br>";
       wb += "<a href='" + SITE_URL + "' style='color:#1a5276;'>" + SITE_URL + "</a></p>";
 
-      wb += "<p style='margin-top:18px;color:#555;'>\u05D1\u05D1\u05E8\u05DB\u05D4,<br><strong>\u05E6\u05D5\u05D5\u05EA \u05E0\u05D9\u05D4\u05D5\u05DC \u05EA\u05D5\u05E8\u05E0\u05D5\u05D9\u05D5\u05EA \u05E0\u05D9\u05D5\u05E8\u05D5\u05DC\u05D5\u05D2\u05D9\u05D4</strong></p>";
+      wb += "<p style='margin-top:18px;color:#555;'>\u05D1\u05D1\u05E8\u05DB\u05D4,<br><strong>\u05E6\u05D5\u05D5\u05EA \u05E0\u05D9\u05D4\u05D5\u05DC \u05EA\u05D5\u05E8\u05E0\u05D5\u05D9\u05D5\u05EA \u05E0\u05D5\u05D9\u05E8\u05D5\u05DC\u05D5\u05D2\u05D9\u05D4</strong></p>";
       wb += "</div>";
 
       MailApp.sendEmail({
@@ -791,7 +844,7 @@ function bulkManageRequests(email, dates, action, reason) {
     if (reason) {
       htmlBody += "<p><b>הודעת המנהל:</b> " + reason + "</p>";
     }
-    htmlBody += "<p>בברכה,<br>צוות ניהול תורנויות נוירולוגיה</p>";
+    htmlBody += "<p>,<br>צוות ניהול תורנויות נוירולוגיה</p>";
     htmlBody += "</div>";
     
     try {
