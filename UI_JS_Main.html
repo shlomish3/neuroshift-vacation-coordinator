@@ -187,8 +187,8 @@ function onMonthSelect(month, year, clickedBtn) {
             
             document.getElementById('freeText').value = data.freeText || '';
             if (typeof fpCannot !== 'undefined' && typeof fpPreferred !== 'undefined') {
-              fpPreferred.set('disable', fpCannot.selectedDates.map(function(d){return fpCannot.formatDate(d, "d/m/Y");}));
-              fpCannot.set('disable', fpPreferred.selectedDates.map(function(d){return fpPreferred.formatDate(d, "d/m/Y");}));
+              fpPreferred.set('disable', fpCannot.selectedDates.slice());
+              fpCannot.set('disable', fpPreferred.selectedDates.slice());
               fpPreferred.redraw();
               fpCannot.redraw();
             }
@@ -415,7 +415,7 @@ function onMonthSelect(month, year, clickedBtn) {
               var impEl = document.getElementById('datesImportant');
               if (impEl) impEl.value = Array.from(importantDatesSet).join(', ');
             }
-            fpPreferred.set('disable', selectedDates.map(function(d){return fpCannot.formatDate(d, "d/m/Y");}));
+            fpPreferred.set('disable', selectedDates.slice());
             fpPreferred.redraw();
           }
         } finally { _calSyncing = false; }
@@ -521,7 +521,7 @@ function onMonthSelect(month, year, clickedBtn) {
             if (typeof fpCannot !== 'undefined') {
               var cFilt = fpCannot.selectedDates.filter(function(d){ return !selectedStrs.includes(_fmtD(d)); });
               if (cFilt.length !== fpCannot.selectedDates.length) fpCannot.setDate(cFilt, false);
-              fpCannot.set('disable', selectedDates.map(function(d){return fpPreferred.formatDate(d, "d/m/Y");}));
+              fpCannot.set('disable', selectedDates.slice());
               fpCannot.redraw();
             }
           } finally { _calSyncing = false; }
