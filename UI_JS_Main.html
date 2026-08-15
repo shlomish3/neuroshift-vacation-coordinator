@@ -187,8 +187,8 @@ function onMonthSelect(month, year, clickedBtn) {
             
             document.getElementById('freeText').value = data.freeText || '';
             if (typeof fpCannot !== 'undefined' && typeof fpPreferred !== 'undefined') {
-              fpPreferred.set('disable', fpCannot.selectedDates.slice());
-              fpCannot.set('disable', fpPreferred.selectedDates.slice());
+              fpPreferred.set('disable', fpCannot.selectedDates.map(function(d){return fpCannot.formatDate(d, "d/m/Y");}));
+              fpCannot.set('disable', fpPreferred.selectedDates.map(function(d){return fpPreferred.formatDate(d, "d/m/Y");}));
               fpPreferred.redraw();
               fpCannot.redraw();
             }
@@ -415,7 +415,7 @@ function onMonthSelect(month, year, clickedBtn) {
               var impEl = document.getElementById('datesImportant');
               if (impEl) impEl.value = Array.from(importantDatesSet).join(', ');
             }
-            fpPreferred.set('disable', selectedDates.slice());
+            fpPreferred.set('disable', selectedDates.map(function(d){return fpCannot.formatDate(d, "d/m/Y");}));
             fpPreferred.redraw();
           }
         } finally { _calSyncing = false; }
@@ -521,7 +521,7 @@ function onMonthSelect(month, year, clickedBtn) {
             if (typeof fpCannot !== 'undefined') {
               var cFilt = fpCannot.selectedDates.filter(function(d){ return !selectedStrs.includes(_fmtD(d)); });
               if (cFilt.length !== fpCannot.selectedDates.length) fpCannot.setDate(cFilt, false);
-              fpCannot.set('disable', selectedDates.slice());
+              fpCannot.set('disable', selectedDates.map(function(d){return fpPreferred.formatDate(d, "d/m/Y");}));
               fpCannot.redraw();
             }
           } finally { _calSyncing = false; }
@@ -533,13 +533,13 @@ function onMonthSelect(month, year, clickedBtn) {
 
     function _sortDatesStr(dStr) {
       if (!dStr) return dStr;
-      return dStr.split(', ').filter(Boolean).sort(function(a, b) {
-        var p1 = a.split('/'); var p2 = b.split('/');
+      return dStr.split(',').map(function(s){ return s.trim(); }).filter(Boolean).sort(function(a, b) {
+        var p1 = a.replace(/[^\d/]/g, '').split('/');
+        var p2 = b.replace(/[^\d/]/g, '').split('/');
         if (p1.length !== 3 || p2.length !== 3) return 0;
         return new Date(p1[2], p1[1] - 1, p1[0]) - new Date(p2[2], p2[1] - 1, p2[0]);
       }).join(', ');
     }
-
     function submitForm(e) {
       e.preventDefault();
 
@@ -571,12 +571,13 @@ function onMonthSelect(month, year, clickedBtn) {
       }
 
       // Build a human-readable summary for the confirmation popup
-      let summary = `שם: ${name}`;
-      if (datesCannot)   summary += `\n\nחסום תורנות/כוננות: ${datesCannot}`;
-      if (datesVacation) summary += `\n\nחופש: ${datesVacation}`;
-      if (datesPreferred)summary += `\n\nמועדף: ${datesPreferred}`;
-      if (freeText)      summary += `\n\nהערה: ${freeText}`;
-      summary += '\n\nהאם לשלוח את הבקשה?';
+      const dirWrap = (str) => str ? str.split(', ').map(d => '\u200E' + d + '\u200E').join(', ') : str;
+      let summary = \u05E9\u05DD: ;
+      if (datesCannot)   summary += \n\n\u05DC\u05D0 \u05D9\u05DB\u05D5\u05DC/\u05D4: ;
+      if (datesVacation) summary += \n\n\u05D7\u05D5\u05E4\u05E9: ;
+      if (datesPreferred)summary += \n\n\u05DE\u05D5\u05E2\u05D3\u05E4\u05D9\u05DD: ;
+      if (freeText)      summary += \n\n\u05D4\u05E2\u05E8\u05D5\u05EA: ;
+      summary += '\n\n\u05D4\u05D0\u05DD \u05DC\u05D0\u05E9\u05E8 \u05E9\u05DC\u05D9\u05D7\u05D4?';
 
       showCustomConfirm(summary, () => _doSubmitForm(email, name, datesCannot, datesVacation, datesPreferred, freeText, btn, statusDiv), null, '📋');
     }

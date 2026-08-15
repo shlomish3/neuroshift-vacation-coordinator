@@ -494,11 +494,12 @@ function processForm(formData) {
 
       wb += "<table style='border-collapse:collapse;width:100%;margin:12px 0;'>";
       wb += "<tr><td style='padding:5px 12px;font-weight:bold;width:180px;background:#eaf2fb;'>\u05D7\u05D5\u05D3\u05E9</td><td style='padding:5px 12px;background:#eaf2fb;'>" + mLabel + "</td></tr>";
-      if (formData.datesCannot)   wb += "<tr><td style='padding:5px 12px;font-weight:bold;background:#fdf2f8;'>\u05DC\u05D0 \u05D9\u05DB\u05D5\u05DC \u05EA\u05D5\u05E8\u05E0\u05D5\u05EA</td><td style='padding:5px 12px;background:#fdf2f8;'>" + formData.datesCannot + "</td></tr>";
-      if (formData.datesVacation) wb += "<tr><td style='padding:5px 12px;font-weight:bold;background:#fefefe;'>\u05D9\u05DE\u05D9 \u05D7\u05D5\u05E4\u05E9</td><td style='padding:5px 12px;background:#fefefe;'>" + formData.datesVacation + "</td></tr>";
+      const dirWrap = (str) => str ? str.split(', ').map(d => '\u200E' + d + '\u200E').join(', ') : str;
+      if (formData.datesCannot)   wb += "<tr><td style='padding:5px 12px;font-weight:bold;background:#fdf2f8;'>\u05DC\u05D0 \u05D9\u05DB\u05D5\u05DC \u05EA\u05D5\u05E8\u05E0\u05D5\u05EA</td><td style='padding:5px 12px;background:#fdf2f8;'>" + dirWrap(formData.datesCannot) + "</td></tr>";
+      if (formData.datesVacation) wb += "<tr><td style='padding:5px 12px;font-weight:bold;background:#fefefe;'>\u05D9\u05DE\u05D9 \u05D7\u05D5\u05E4\u05E9</td><td style='padding:5px 12px;background:#fefefe;'>" + dirWrap(formData.datesVacation) + "</td></tr>";
       if (formData.datesPreferred) {
         const dispP = prefArr.map(function(d){ return impArr.includes(d) ? d + ' (\u05D7\u05E9\u05D5\u05D1)' : d; });
-        wb += "<tr><td style='padding:5px 12px;font-weight:bold;background:#f0fdf4;'>\u05DE\u05D5\u05E2\u05D3\u05E4\u05D9\u05DD</td><td style='padding:5px 12px;background:#f0fdf4;'>" + dispP.join(', ') + "</td></tr>";
+        wb += "<tr><td style='padding:5px 12px;font-weight:bold;background:#f0fdf4;'>\u05DE\u05D5\u05E2\u05D3\u05E4\u05D9\u05DD</td><td style='padding:5px 12px;background:#f0fdf4;'>" + dirWrap(dispP.join(', ')) + "</td></tr>";
       }
       if (formData.freeText) wb += "<tr><td style='padding:5px 12px;font-weight:bold;background:#fffde7;'>\u05D4\u05E2\u05E8\u05D5\u05EA</td><td style='padding:5px 12px;background:#fffde7;'>" + formData.freeText + "</td></tr>";
       wb += "</table>";
@@ -532,11 +533,11 @@ function processForm(formData) {
         mgrBody += "<tr><td style='padding:4px 10px;font-weight:bold;width:160px;'>עובד</td><td style='padding:4px 10px;'>" + name + "</td></tr>";
         mgrBody += "<tr style='background:#f2f6fc;'><td style='padding:4px 10px;font-weight:bold;'>מייל</td><td style='padding:4px 10px;direction:ltr;'>" + email + "</td></tr>";
         mgrBody += "<tr><td style='padding:4px 10px;font-weight:bold;'>חודש</td><td style='padding:4px 10px;'>" + monthLabel + "</td></tr>";
-        if (formData.datesCannot)   mgrBody += "<tr style='background:#fdf2f8;'><td style='padding:4px 10px;font-weight:bold;'>לא יכול תורנות</td><td style='padding:4px 10px;'>" + formData.datesCannot + "</td></tr>";
-        if (formData.datesVacation) mgrBody += "<tr><td style='padding:4px 10px;font-weight:bold;'>ימי חופש</td><td style='padding:4px 10px;'>" + formData.datesVacation + "</td></tr>";
+        if (formData.datesCannot)   mgrBody += "<tr style='background:#fdf2f8;'><td style='padding:4px 10px;font-weight:bold;'>\u05DC\u05D0 \u05D9\u05DB\u05D5\u05DC \u05EA\u05D5\u05E8\u05E0\u05D5\u05EA</td><td style='padding:4px 10px;'>" + dirWrap(formData.datesCannot) + "</td></tr>";
+        if (formData.datesVacation) mgrBody += "<tr><td style='padding:4px 10px;font-weight:bold;'>\u05D9\u05DE\u05D9 \u05D7\u05D5\u05E4\u05E9</td><td style='padding:4px 10px;'>" + dirWrap(formData.datesVacation) + "</td></tr>";
         if (formData.datesPreferred) {
-          const dispPref = prefArr.map(function(d){ return impArr.includes(d) ? d + ' (חשוב)' : d; });
-          mgrBody += "<tr style='background:#f0fdf4;'><td style='padding:4px 10px;font-weight:bold;'>מועדפים</td><td style='padding:4px 10px;'>" + dispPref.join(', ') + "</td></tr>";
+          const dispPref = prefArr.map(function(d){ return impArr.includes(d) ? d + ' (\u05D7\u05E9\u05D5\u05D1)' : d; });
+          mgrBody += "<tr style='background:#f0fdf4;'><td style='padding:4px 10px;font-weight:bold;'>\u05DE\u05D5\u05E2\u05D3\u05E4\u05D9\u05DD</td><td style='padding:4px 10px;'>" + dirWrap(dispPref.join(', ')) + "</td></tr>";
         }
         if (formData.freeText) mgrBody += "<tr><td style='padding:4px 10px;font-weight:bold;'>הערות</td><td style='padding:4px 10px;'>" + formData.freeText + "</td></tr>";
         mgrBody += "</table>";
