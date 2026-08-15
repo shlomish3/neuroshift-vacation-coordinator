@@ -679,7 +679,8 @@ function onMonthSelect(month, year, clickedBtn) {
             const btnText    = isLocked ? '\u05E4\u05EA\u05D7 \uD83D\uDD13' : '\u05E0\u05E2\u05DC \uD83D\uDD12';
             card.innerHTML = '<div class="month-lock-name">' + name + '</div>' +
               '<div class="month-lock-badge ' + badgeClass + '">' + badgeText + '</div>' +
-              '<button class="month-lock-btn ' + btnClass + '" onclick="toggleSubmissionLock(\'' + m.key + '\', this)">' + btnText + '</button>';
+              '<button class="month-lock-btn ' + btnClass + '" onclick="toggleSubmissionLock(\'' + m.key + '\', this)">' + btnText + '</button>' +
+              '<button class="month-lock-btn" style="background:#f39c12; margin-top:6px;" onclick="showMissingSubmissions(\'' + m.key + '\', \'' + name + '\')">מי טרם הגיש?</button>';
             container.appendChild(card);
           });
         })
@@ -701,6 +702,56 @@ function onMonthSelect(month, year, clickedBtn) {
           .withFailureHandler(function() { showToast('\u05E9\u05D2\u05D9\u05D0\u05D4. \u05E0\u05E1\u05D4 \u05E9\u05E0\u05D9\u05EA.'); })
           .setSubmissionLock(monthKey, !isLocked);
       }, null, isLocked ? '\uD83D\uDD13' : '\uD83D\uDD12');
+    }
+
+    function showMissingSubmissions(monthKey, monthName) {
+       const missing = [];
+       const parts = monthKey.split('-');
+       const targetMonth = parseInt(parts[0], 10);
+       const targetYear = parseInt(parts[1], 10);
+
+       const submittedNames = new Set();
+       for (const date in existingVacations) {
+         const dateParts = date.split('/');
+         if (dateParts.length === 3) {
+            const dMonth = parseInt(dateParts[1], 10);
+            const dYear = parseInt(dateParts[2], 10);
+            if (dMonth === targetMonth && dYear === targetYear) {
+               existingVacations[date].forEach(v => {
+                  if (v.status !== 'Revoked') submittedNames.add(v.name);
+               });
+            }
+         }
+       }
+       for (const name in existingNotes) {
+         if (existingNotes[name][monthKey] && String(existingNotes[name][monthKey]).trim() !== '') {
+            submittedNames.add(name);
+         }
+       }
+
+       for (const email of teamOrder) {
+          const doc = doctorDatabase[email];
+          if (!doc) continue;
+          if (managerFilter !== 'הכל' && doc.role !== managerFilter) continue;
+          if (!submittedNames.has(doc.name)) {
+             missing.push(doc.name);
+          }
+       }
+       
+       let html = '<div style="max-height: 50vh; overflow-y: auto; text-align: right;">';
+       if (missing.length === 0) {
+          html += '<p style="text-align:center; color:#27ae60; font-weight:bold; font-size:16px;">כולם הגישו!</p>';
+       } else {
+          html += '<p style="margin-top:0; font-size:14px; color:#555;">' + missing.length + ' רופאים טרם הגישו:</p>';
+          html += '<ul style="list-style:none; padding:0; margin:0;">';
+          missing.forEach(name => {
+             html += '<li style="padding: 8px; border-bottom: 1px solid #eee;">' + name + '</li>';
+          });
+          html += '</ul>';
+      }
+      html += '</div>';
+      
+      showCustomAlert(html, 'טרם הגישו - ' + monthName);
     }
 
     function doArchiveMonth() {
