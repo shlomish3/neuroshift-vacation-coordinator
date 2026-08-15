@@ -145,6 +145,15 @@ function shiftRosterMonth(delta) {
   };
 }
 
+function forceRefreshLegacySheet() {
+  const rm = getRosterMonth();
+  const rebuild = repopulateRosterSheet(rm.key);
+  if (!rebuild || !rebuild.success) {
+    return { success: false, message: rebuild ? rebuild.message : 'Rebuild failed' };
+  }
+  return { success: true };
+}
+
 function repopulateRosterSheet(monthKey) {
   try {
     const parts  = monthKey.split('-');

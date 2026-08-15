@@ -738,20 +738,17 @@ function onMonthSelect(month, year, clickedBtn) {
           }
        }
        
-       let html = '<div style="max-height: 50vh; overflow-y: auto; text-align: right;">';
+       let msg = '';
        if (missing.length === 0) {
-          html += '<p style="text-align:center; color:#27ae60; font-weight:bold; font-size:16px;">כולם הגישו!</p>';
+          msg = 'כולם הגישו!';
        } else {
-          html += '<p style="margin-top:0; font-size:14px; color:#555;">' + missing.length + ' רופאים טרם הגישו:</p>';
-          html += '<ul style="list-style:none; padding:0; margin:0;">';
+          msg = missing.length + ' רופאים טרם הגישו:\n\n';
           missing.forEach(name => {
-             html += '<li style="padding: 8px; border-bottom: 1px solid #eee;">' + name + '</li>';
+             msg += '• ' + name + '\n';
           });
-          html += '</ul>';
       }
-      html += '</div>';
       
-      showCustomAlert(html, 'טרם הגישו - ' + monthName);
+      showCustomAlert(msg, 'טרם הגישו - ' + monthName);
     }
 
     function doArchiveMonth() {
@@ -877,6 +874,22 @@ function onMonthSelect(month, year, clickedBtn) {
         })
         .withFailureHandler(function() { showCustomAlert('\u05E9\u05D2\u05D9\u05D0\u05D4', '\u274C'); })
         .shiftRosterMonth(delta);
+    }
+
+    function refreshLegacySheetUI() {
+      showToast('מרענן גיליון...');
+      google.script.run
+        .withSuccessHandler(function(result) {
+           if (result && result.success) {
+              showToast('גיליון תגובות לטופס 1 רוענן ✔');
+           } else {
+              showCustomAlert('שגיאה ברענון הגיליון: ' + ((result && result.message) || ''), '❌');
+           }
+        })
+        .withFailureHandler(function(err) {
+           showCustomAlert('שגיאה ברענון הגיליון: ' + err, '❌');
+        })
+        .forceRefreshLegacySheet();
     }
 
     // ── Email Blast ──────────────────────────────────────────────────────────
