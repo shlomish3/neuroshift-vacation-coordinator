@@ -1169,7 +1169,7 @@ function onMonthSelect(month, year, clickedBtn) {
                }
              }
              if (pEmail && stats[pEmail]) {
-                if (v.type === 'חופש' && v.status !== 'ForcedLeave') stats[pEmail].vacation++;
+                if (v.type === 'חופש' && v.status !== 'ForcedLeave' && dObj.getDay() >= 0 && dObj.getDay() <= 4) stats[pEmail].vacation++;
                 if (v.type === 'לא יכול תורנות') stats[pEmail].cannot++;
                 if (v.type === 'מועדף') stats[pEmail].pref++;
              }
