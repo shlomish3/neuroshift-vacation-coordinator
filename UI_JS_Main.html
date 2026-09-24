@@ -345,6 +345,27 @@ function onMonthSelect(month, year, clickedBtn) {
       dayElem.style.boxShadow = "inset 0 0 0 1px " + borderColor;
       if (isDark) dayElem.style.color = "#fff";
 
+      // EXACT COUNT BADGE
+      const countBadge = document.createElement('div');
+      countBadge.innerText = count;
+      countBadge.style.position = 'absolute';
+      countBadge.style.bottom = '2px';
+      countBadge.style.right = '2px';
+      countBadge.style.width = '14px';
+      countBadge.style.height = '14px';
+      countBadge.style.borderRadius = '50%';
+      countBadge.style.backgroundColor = isDark ? 'rgba(255,255,255,0.9)' : 'rgba(0,0,0,0.6)';
+      countBadge.style.color = isDark ? '#333' : '#fff';
+      countBadge.style.fontSize = '9px';
+      countBadge.style.fontWeight = '900';
+      countBadge.style.display = 'flex';
+      countBadge.style.alignItems = 'center';
+      countBadge.style.justifyContent = 'center';
+      countBadge.style.zIndex = '4';
+      countBadge.style.pointerEvents = 'none';
+      countBadge.style.boxShadow = '0 1px 2px rgba(0,0,0,0.3)';
+      dayElem.appendChild(countBadge);
+
       if (targetType === "חופש") {
         dayElem.classList.add("has-colleagues-vacation");
         dayElem.style.setProperty("--heatmap-color", color);
@@ -516,6 +537,8 @@ function onMonthSelect(month, year, clickedBtn) {
         });
         
         dayElem.appendChild(starBtn);
+        
+        if (typeof renderIndicator === 'function') renderIndicator(instance, dayElem, 'מועדף');
       },
       onChange: function(selectedDates, dateStr, instance) {
         const selectedStrs = selectedDates.map(d => instance.formatDate(d, "d/m/Y"));

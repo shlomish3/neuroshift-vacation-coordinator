@@ -53,7 +53,7 @@
     .cannot-work-theme .flatpickr-calendar .flatpickr-day.selected { background: #e74c3c !important; border: 2px solid #e74c3c !important; box-shadow: inset 0 0 0 2px #fff !important; color: #fff !important; font-weight: bold !important; z-index: 2; }
     .preferred-theme .flatpickr-calendar .flatpickr-day.selected { background: #2ecc71 !important; border: 2px solid #2ecc71 !important; box-shadow: inset 0 0 0 2px #fff !important; color: #fff !important; font-weight: bold !important; z-index: 2; }
     .vacation-theme .flatpickr-calendar .flatpickr-day.selected { background: #2c3e50 !important; border: 2px solid #2c3e50 !important; box-shadow: inset 0 0 0 2px #fff !important; color: #fff !important; font-weight: bold !important; z-index: 2; }
-.vacation-theme .flatpickr-calendar .flatpickr-day.selected.has-colleagues-vacation { background: linear-gradient(135deg, #2c3e50 50%, var(--heatmap-color, #f39c12) 50%) !important; }
+
 
     .heatmap-legend { display: flex; align-items: center; justify-content: center; margin-top: 8px; font-size: 13px; color: #555; gap: 6px; }
     .legend-box { width: 14px; height: 14px; border-radius: 3px; border: 1px solid #ddd; }
@@ -135,11 +135,7 @@
       color: white !important;
     }
     /* When selected AND colleagues also blocked: left=red(user), right=yellow +1 via CSS var */
-    .cannot-work-theme .flatpickr-calendar .flatpickr-day.selected.has-colleagues-cannot {
-      background: linear-gradient(135deg, #c0392b 50%, var(--cannot-heatmap-color, #f39c12) 50%) !important;
-      border-color: #c0392b !important;
-      color: white !important;
-    }
+    
 
     /* Out-of-current-month days: dim them so they don't visually compete with in-month cells */
     .vacation-theme .flatpickr-day.prevMonthDay,
