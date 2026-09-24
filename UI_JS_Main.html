@@ -1483,7 +1483,7 @@ function onMonthSelect(month, year, clickedBtn) {
               
               const createBadge = (count, type) => {
                 const badge = document.createElement('div');
-                badge.innerText = count >= 5 ? '5+' : count;
+                badge.innerText = count;
                 
                 let bgColor, textColor = 'white';
                 if (type === 'vacation') {
