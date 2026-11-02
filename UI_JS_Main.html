@@ -2130,6 +2130,25 @@ function onMonthSelect(month, year, clickedBtn) {
     // ── Personal Calendar Modal Logic ─────────────────────────────────────────
     let currentPersonalCalData = null;
 
+    function openGoogleCalendarAdd() {
+      if (!currentPersonalCalData || !currentPersonalCalData.subscriptionUrl) return;
+      const url = currentPersonalCalData.subscriptionUrl;
+      
+      // Copy URL to clipboard
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(url).then(function() {
+          showToast('הקישור הועתק! פותח את מסך ההוספה בגוגל...');
+        }).catch(function() {
+          _fallbackCopyPersonalCal(url);
+        });
+      } else {
+        _fallbackCopyPersonalCal(url);
+      }
+      
+      // Open Google Calendar directly to the "Add by URL" settings page
+      window.open('https://calendar.google.com/calendar/u/0/r/settings/addbyurl', '_blank');
+    }
+
     function openPersonalCalendarModal() {
       const emailInput = document.getElementById('doctorEmail');
       const email = emailInput ? emailInput.value.toLowerCase().trim() : '';
