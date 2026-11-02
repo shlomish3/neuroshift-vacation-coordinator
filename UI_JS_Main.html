@@ -10,6 +10,7 @@
       const nameInput = document.getElementById('doctorName');
       const emailError = document.getElementById('emailError');
       const calendarsSection = document.getElementById('calendarsSection');
+      const personalCalSection = document.getElementById('personalCalendarSection');
       const email = emailInput.value.toLowerCase().trim();
       
       if (!email) {
@@ -17,6 +18,7 @@
         emailError.style.display = "none";
         emailInput.classList.remove("invalid-input");
         calendarsSection.style.display = "none";
+        if (personalCalSection) personalCalSection.style.display = "none";
         currentDocRole = null;
         document.getElementById('managerLoginBtn').style.display = 'none';
         return false;
@@ -28,6 +30,7 @@
         emailError.style.display = "none";
         emailInput.classList.remove("invalid-input");
         calendarsSection.style.display = "block";
+        if (personalCalSection) personalCalSection.style.display = "block";
         document.getElementById('calendarContent').style.display = 'none';
 
         const managerLoginBtn = document.getElementById('managerLoginBtn');
@@ -51,6 +54,7 @@
         emailError.style.display = "block";
         emailInput.classList.add("invalid-input");
         calendarsSection.style.display = "none";
+        if (personalCalSection) personalCalSection.style.display = "none";
         document.getElementById('managerLoginBtn').style.display = 'none';
         return false;
       }
@@ -2121,5 +2125,111 @@ function onMonthSelect(month, year, clickedBtn) {
         .bulkManageRequests(email, dates, action, reason);
     }
 
+
+
+    // ── Personal Calendar Modal Logic ─────────────────────────────────────────
+    let currentPersonalCalData = null;
+
+    function openPersonalCalendarModal() {
+      const emailInput = document.getElementById('doctorEmail');
+      const email = emailInput ? emailInput.value.toLowerCase().trim() : '';
+      if (!email) {
+        showCustomAlert('אנא הזן כתובת אימייל תחילה.', 'warning');
+        return;
+      }
+
+      const modal = document.getElementById('personalCalendarModal');
+      const loading = document.getElementById('personalCalLoading');
+      const errorDiv = document.getElementById('personalCalError');
+      const content = document.getElementById('personalCalContent');
+      const doctorNameEl = document.getElementById('personalCalDoctorName');
+      const calNameEl = document.getElementById('personalCalCalendarName');
+
+      if (!modal) return;
+      modal.style.display = 'flex';
+      if (loading) loading.style.display = 'block';
+      if (errorDiv) errorDiv.style.display = 'none';
+      if (content) content.style.display = 'none';
+
+      const docName = (doctorDatabase[email] && doctorDatabase[email].name) || '';
+      if (doctorNameEl) {
+        doctorNameEl.innerText = docName ? 'יומן תורנויות - ' + docName : 'הרשמה ליומן תורנויות אישי';
+      }
+
+      google.script.run
+        .withSuccessHandler(function(response) {
+          if (loading) loading.style.display = 'none';
+          if (response && response.success) {
+            currentPersonalCalData = response;
+            if (doctorNameEl && response.name) {
+              doctorNameEl.innerText = 'יומן תורנויות - ' + response.name;
+            }
+            if (calNameEl && response.calendarTitle) {
+              calNameEl.innerText = response.calendarTitle;
+            }
+
+            const googleBtn = document.getElementById('personalCalGoogleBtn');
+            const appleBtn = document.getElementById('personalCalAppleBtn');
+            if (googleBtn) googleBtn.href = response.googleCalUrl;
+            if (appleBtn) appleBtn.href = response.webcalUrl;
+
+            const copyText = document.getElementById('personalCalCopyText');
+            if (copyText) copyText.innerText = 'העתקת קישור (ל-Outlook או הגדרה ידנית)';
+
+            if (content) content.style.display = 'block';
+          } else {
+            if (errorDiv) {
+              errorDiv.innerText = (response && response.message) || 'לא נמצא קישור יומן עבור כתובת זו.';
+              errorDiv.style.display = 'block';
+            }
+          }
+        })
+        .withFailureHandler(function(err) {
+          if (loading) loading.style.display = 'none';
+          if (errorDiv) {
+            errorDiv.innerText = 'שגיאה בחיבור לשרת: ' + (err.message || err);
+            errorDiv.style.display = 'block';
+          }
+        })
+        .getUserPersonalCalendar(email);
+    }
+
+    function closePersonalCalendarModal() {
+      const modal = document.getElementById('personalCalendarModal');
+      if (modal) modal.style.display = 'none';
+    }
+
+    function copyPersonalCalendarLink() {
+      if (!currentPersonalCalData || !currentPersonalCalData.subscriptionUrl) return;
+      const url = currentPersonalCalData.subscriptionUrl;
+      
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(url).then(function() {
+          const copyText = document.getElementById('personalCalCopyText');
+          if (copyText) copyText.innerText = '✓ הקישור הועתק בהצלחה!';
+          showToast('הקישור האישי הועתק ללוח');
+        }).catch(function() {
+          _fallbackCopyPersonalCal(url);
+        });
+      } else {
+        _fallbackCopyPersonalCal(url);
+      }
+    }
+
+    function _fallbackCopyPersonalCal(text) {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      document.body.appendChild(ta);
+      ta.select();
+      try {
+        document.execCommand('copy');
+        const copyText = document.getElementById('personalCalCopyText');
+        if (copyText) copyText.innerText = '✓ הקישור הועתק בהצלחה!';
+        showToast('הקישור האישי הועתק ללוח');
+      } catch(e) {
+        prompt('העתק את הקישור:', text);
+      }
+      document.body.removeChild(ta);
+    }
 
 </script>

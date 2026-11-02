@@ -918,3 +918,92 @@ function logGodModeLogin(managerEmail) {
     console.error('logGodModeLogin error:', e.message);
   }
 }
+
+
+/**
+ * Retrieves the personal calendar subscription link for a single user.
+ * Reads '05 Neuroshift - יומנים אישיים' sheet -> 'קישורי יומנים' tab.
+ * Strictly returns only the requesting user's link to prevent exposure of other users' feeds.
+ */
+function getUserPersonalCalendar(email) {
+  try {
+    if (!email) {
+      return { success: false, message: 'לא צוינה כתובת אימייל.' };
+    }
+    email = email.toLowerCase().trim();
+
+    // 1. Verify user in team database
+    const teamDb = getTeamDatabase();
+    const doctor = teamDb[email];
+    if (!doctor) {
+      return { success: false, message: 'כתובת האימייל אינה מופיעה ברשימת הצוות.' };
+    }
+    const docName = (doctor.name || '').trim();
+
+    // 2. Open personal calendars spreadsheet
+    const PERSONAL_CALENDARS_SHEET_ID = '1VW_m4Os86AldMCgrK1pYgRAOQv7BxHBlyQPr5Ry_rIQ';
+    const ss = SpreadsheetApp.openById(PERSONAL_CALENDARS_SHEET_ID);
+    if (!ss) {
+      return { success: false, message: 'לא ניתן לגשת לקובץ היומנים האישיים.' };
+    }
+
+    const sheet = ss.getSheetByName('קישורי יומנים');
+    if (!sheet) {
+      return { success: false, message: 'גיליון "קישורי יומנים" לא נמצא.' };
+    }
+
+    const data = sheet.getDataRange().getValues();
+    if (data.length <= 1) {
+      return { success: false, message: 'אין קישורי יומנים זמינים כרגע.' };
+    }
+
+    // 3. Prepare name matching
+    const cleanDocName = docName.replace(/^(ד"?ר|פרופ'?)\s+/g, '').trim();
+    const docParts = cleanDocName.split(/[\s\-]+/).filter(Boolean);
+    const lastName = docParts.length > 0 ? docParts[docParts.length - 1] : cleanDocName;
+
+    for (let i = 1; i < data.length; i++) {
+      const row = data[i];
+      const workerName = String(row[0] || '').trim();
+      const calendarTitle = String(row[1] || '').trim();
+      const subUrl = String(row[2] || '').trim();
+
+      if (!workerName || !subUrl) continue;
+
+      if (
+        workerName === cleanDocName ||
+        workerName === docName ||
+        workerName === lastName ||
+        docName.includes(workerName) ||
+        cleanDocName.includes(workerName)
+      ) {
+        let webcalUrl = subUrl;
+        if (webcalUrl.startsWith('https://')) {
+          webcalUrl = 'webcal://' + webcalUrl.substring(8);
+        } else if (webcalUrl.startsWith('http://')) {
+          webcalUrl = 'webcal://' + webcalUrl.substring(7);
+        }
+
+        const googleCalUrl = 'https://calendar.google.com/calendar/render?cid=' + encodeURIComponent(webcalUrl);
+
+        return {
+          success: true,
+          name: docName,
+          workerName: workerName,
+          calendarTitle: calendarTitle || ('Neuroshift - ' + workerName),
+          subscriptionUrl: subUrl,
+          webcalUrl: webcalUrl,
+          googleCalUrl: googleCalUrl
+        };
+      }
+    }
+
+    return {
+      success: false,
+      message: 'טרם נוצר יומן אישי עבור ' + docName + '. אנא פנה למנהל המערכת.'
+    };
+  } catch (err) {
+    console.error('getUserPersonalCalendar error:', err);
+    return { success: false, message: 'שגיאה בטעינת היומן האישי: ' + err.message };
+  }
+}

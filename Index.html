@@ -99,6 +99,15 @@
       
       <div id="status"></div>
     </form>
+
+    <!-- Personal Calendar Subscription Section: shown after valid email lookup -->
+    <div id="personalCalendarSection" style="display:none; margin-top:20px; padding-top:16px; border-top:1px solid #e2e8f0; text-align:center;">
+      <button type="button" id="personalCalendarBtn" onclick="openPersonalCalendarModal()" style="width:100%; padding:13px 18px; background:linear-gradient(135deg, #1f6f8b, #17546a); color:#fff; border:none; border-radius:8px; font-size:15px; font-weight:600; cursor:pointer; display:inline-flex; align-items:center; justify-content:center; gap:8px; box-shadow:0 2px 6px rgba(31,111,139,0.25); transition:background 0.2s, transform 0.1s;">
+        <span style="font-size:18px;">📅</span>
+        <span>הרשמה ליומן תורנויות אישי</span>
+      </button>
+      <div style="font-size:12px; color:#7f8c8d; margin-top:6px;">סנכרון תורנויות וכוננויות אישיות לנייד וליומן (Google / Apple / Outlook)</div>
+    </div>
   </div>
   
   <div class="card manager-card" id="managerCard">
@@ -369,5 +378,68 @@
 <style>
 @keyframes gmodal-in { from { transform:scale(0.82) translateY(16px); opacity:0; } to { transform:scale(1) translateY(0); opacity:1; } }
 </style>
+
+<!-- Personal Calendar Modal -->
+<div id="personalCalendarModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(44,62,80,0.65); z-index:99999; align-items:center; justify-content:center;">
+  <div style="background:white; border-radius:18px; padding:26px 22px; max-width:440px; width:92%; box-shadow:0 20px 60px rgba(0,0,0,0.3); font-family:'Rubik',sans-serif; direction:rtl; text-align:center; animation:gmodal-in 0.25s cubic-bezier(0.34,1.56,0.64,1); position:relative; max-height:90vh; overflow-y:auto;">
+    
+    <!-- Close X button -->
+    <button type="button" onclick="closePersonalCalendarModal()" style="position:absolute; top:14px; left:16px; background:none; border:none; font-size:22px; color:#95a5a6; cursor:pointer; width:auto; padding:0; line-height:1;">✕</button>
+
+    <div style="font-size:38px; margin-bottom:8px;">📅</div>
+    <h3 id="personalCalDoctorName" style="margin:0 0 6px; color:#1f6f8b; font-size:19px; font-weight:700;">הרשמה ליומן תורנויות אישי</h3>
+    <div id="personalCalCalendarName" style="font-size:13px; color:#7f8c8d; margin-bottom:14px;">סנכרון שיבוצים אישיים למכשירך</div>
+
+    <!-- Loading State -->
+    <div id="personalCalLoading" style="display:block; padding:25px 0;">
+      <div style="font-size:15px; color:#555; margin-bottom:8px;">טוען את נתוני היומן שלך...</div>
+      <div style="font-size:24px;">⏳</div>
+    </div>
+
+    <!-- Error State -->
+    <div id="personalCalError" style="display:none; padding:15px; background:#fdf2e9; border:1px solid #f5b041; border-radius:10px; margin-bottom:16px; color:#b9770e; font-size:14px; text-align:right; line-height:1.5;"></div>
+
+    <!-- Content State -->
+    <div id="personalCalContent" style="display:none; text-align:right;">
+      <div style="background:#f4f9fb; border:1px solid #d0e7f0; border-radius:10px; padding:12px 14px; margin-bottom:18px; font-size:13px; color:#17324d; line-height:1.5;">
+        💡 <b>איך זה עובד?</b> היומן מסונכרן לענן ומתעדכן אוטומטית בכל פעם שמפורסם סידור עבודה חדש. אין צורך להירשם שוב בעתיד.
+      </div>
+
+      <div style="display:flex; flex-direction:column; gap:10px;">
+        <!-- Option 1: Google Calendar -->
+        <a id="personalCalGoogleBtn" href="#" target="_blank" style="display:flex; align-items:center; justify-content:center; gap:10px; background:#4285F4; color:white; text-decoration:none; padding:13px 16px; border-radius:10px; font-weight:600; font-size:15px; box-shadow:0 2px 5px rgba(66,133,244,0.3); transition:background 0.2s;">
+          <span style="font-size:18px;">🌐</span>
+          <span>הוספה ל-Google Calendar</span>
+        </a>
+
+        <!-- Option 2: Apple Calendar / iPhone -->
+        <a id="personalCalAppleBtn" href="#" style="display:flex; align-items:center; justify-content:center; gap:10px; background:#111; color:white; text-decoration:none; padding:13px 16px; border-radius:10px; font-weight:600; font-size:15px; box-shadow:0 2px 5px rgba(0,0,0,0.25); transition:background 0.2s;">
+          <span style="font-size:18px;">🍏</span>
+          <span>הרשמה ב-iPhone / Apple Calendar</span>
+        </a>
+
+        <!-- Option 3: Copy Subscription Link -->
+        <button type="button" id="personalCalCopyBtn" onclick="copyPersonalCalendarLink()" style="display:flex; align-items:center; justify-content:center; gap:10px; background:#ecf0f1; color:#2c3e50; border:1px solid #bdc3c7; padding:12px 16px; border-radius:10px; font-weight:600; font-size:14px; cursor:pointer; width:100%; margin:0; transition:background 0.2s;">
+          <span style="font-size:16px;">📋</span>
+          <span id="personalCalCopyText">העתקת קישור (ל-Outlook או הגדרה ידנית)</span>
+        </button>
+      </div>
+
+      <!-- Instructions collapse/details -->
+      <details style="margin-top:16px; font-size:12px; color:#555; background:#fafafa; border-radius:8px; padding:8px 12px; border:1px solid #eee;">
+        <summary style="cursor:pointer; font-weight:600; color:#1f6f8b;">הנחיות להגדרה ידנית</summary>
+        <div style="padding-top:8px; line-height:1.6;">
+          • <b>Google Calendar (במחשב):</b> לחצו על + ליד "יומנים אחרים" > "מתוך כתובת URL" > הדביקו את הקישור.<br>
+          • <b>Outlook בדפדפן:</b> לחצו "Add calendar" > "Subscribe from web" > הדביקו את הקישור.<br>
+          • <b>Apple Calendar:</b> "קובץ" > "מינוי ליומן חדש..." > הדביקו את הקישור.
+        </div>
+      </details>
+    </div>
+
+    <!-- Close button -->
+    <button type="button" onclick="closePersonalCalendarModal()" style="margin-top:18px; background:#ecf0f1; color:#2c3e50; border:none; padding:10px 24px; border-radius:8px; font-size:14px; font-weight:600; cursor:pointer; width:auto;">סגירה</button>
+  </div>
+</div>
+
 </body>
 </html>
