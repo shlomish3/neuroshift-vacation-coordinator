@@ -984,7 +984,7 @@ function getUserPersonalCalendar(email) {
           webcalUrl = 'webcal://' + webcalUrl.substring(7);
         }
 
-        const googleCalUrl = 'https://calendar.google.com/calendar/render?cid=' + encodeURIComponent(webcalUrl);
+        const googleCalUrl = 'https://calendar.google.com/calendar/r?cid=' + encodeURIComponent(subUrl);
 
         return {
           success: true,
